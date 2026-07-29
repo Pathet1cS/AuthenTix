@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+package-lock.json.bak
+
+# Environment variables & secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+
+# Hardhat / Smart Contract build output
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
+contracts/coverage/
+contracts/coverage.json
+contracts/deployments/*.json
+!contracts/deployments/.gitkeep
+
+# Frontend / Next.js build output
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/dist/
+
+# Logs & temporary files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS / Editor metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
