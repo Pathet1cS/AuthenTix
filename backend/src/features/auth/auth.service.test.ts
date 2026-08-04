@@ -130,3 +130,44 @@ describe('login — rejection', () => {
     await expect(login(await buildRequest())).rejects.toMatchObject({ statusCode: 401 });
   });
 });
+
+describe('login — duplicate key handling', () => {
+  it('resolves a walletAddress race to the existing user instead of throwing', async () => {
+    const wallet = Wallet.createRandom();
+    const walletAddress = wallet.address.toLowerCase();
+    const existing = await User.create({
+      walletAddress,
+      email: 'existing@example.com',
+      name: 'Bob',
+      role: 'buyer',
+    });
+
+    // Simulate the race: our pre-check finds nothing (as it would if a
+    // concurrent request created the user in the gap before our create call
+    // hits the real unique index), while the user already exists for real.
+    jest.spyOn(User, 'findOne').mockResolvedValueOnce(null);
+
+    const result = await login(await buildRequest({}, wallet));
+
+    expect(result.userId).toBe(String(existing._id));
+    expect(await User.countDocuments()).toBe(1);
+  });
+
+  it('rejects a new wallet whose email is already registered to a different wallet', async () => {
+    const existingWallet = Wallet.createRandom();
+    await User.create({
+      walletAddress: existingWallet.address.toLowerCase(),
+      email: 'taken@example.com',
+      name: 'Bob',
+      role: 'buyer',
+    });
+
+    const newWallet = Wallet.createRandom();
+    const req = await buildRequest({ email: 'taken@example.com' }, newWallet);
+
+    await expect(login(req)).rejects.toMatchObject({
+      message: 'Email already registered',
+      statusCode: 409,
+    });
+  });
+});

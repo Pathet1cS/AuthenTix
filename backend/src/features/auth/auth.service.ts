@@ -13,6 +13,19 @@ export interface LoginResult {
   token: string;
 }
 
+interface MongoDuplicateKeyError {
+  code: number;
+  keyPattern?: Record<string, unknown>;
+}
+
+function isDuplicateKeyError(err: unknown): err is MongoDuplicateKeyError {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: unknown }).code === 11000
+  );
+}
+
 export async function login(request: LoginRequest): Promise<LoginResult> {
   const { payload, signature } = request;
 
@@ -47,12 +60,32 @@ export async function login(request: LoginRequest): Promise<LoginResult> {
   // the platform assigned, and a new one always starts as a buyer.
   let user = await User.findOne({ walletAddress });
   if (!user) {
-    user = await User.create({
-      walletAddress,
-      email: payload.email,
-      name: payload.name,
-      role: 'buyer',
-    });
+    try {
+      user = await User.create({
+        walletAddress,
+        email: payload.email,
+        name: payload.name,
+        role: 'buyer',
+      });
+    } catch (err) {
+      if (!isDuplicateKeyError(err)) {
+        throw err;
+      }
+      if (err.keyPattern?.walletAddress) {
+        // Another request created this user in the gap between our findOne
+        // and our create (double-submit, retry, two tabs). Re-fetch and
+        // proceed idempotently rather than failing the login.
+        const winner = await User.findOne({ walletAddress });
+        if (!winner) {
+          throw err;
+        }
+        user = winner;
+      } else if (err.keyPattern?.email) {
+        throw createError('Email already registered', 409);
+      } else {
+        throw err;
+      }
+    }
   }
 
   const userId = String(user._id);
