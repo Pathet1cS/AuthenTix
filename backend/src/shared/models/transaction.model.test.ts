@@ -10,10 +10,10 @@ describe('Transaction model', () => {
   const validTx = {
     txHash: '0xdeadbeef',
     type: 'mint' as const,
-    tokenId: 1,
+    tokenId: '1',
     fromWallet: '0x0000000000000000000000000000000000000000',
     toWallet: '0xAbCd0000000000000000000000000000000000FF',
-    price: '50000000000000000',
+    price: 50000,
     timestamp: new Date('2026-08-01'),
   };
 
@@ -21,16 +21,16 @@ describe('Transaction model', () => {
     const tx = await Transaction.create(validTx);
     expect(tx.txHash).toBe('0xdeadbeef');
     expect(tx.type).toBe('mint');
-    expect(tx.tokenId).toBe(1);
+    expect(tx.tokenId).toBe('1');
     expect(tx.toWallet).toBe(validTx.toWallet.toLowerCase());
-    expect(tx.price).toBe('50000000000000000');
+    expect(tx.price).toBe(50000);
     expect(tx.createdAt).toBeInstanceOf(Date);
   });
 
   it('enforces unique txHash', async () => {
     await Transaction.create(validTx);
     await expect(
-      Transaction.create({ ...validTx, tokenId: 2 }),
+      Transaction.create({ ...validTx, tokenId: '2' }),
     ).rejects.toThrow();
   });
 
@@ -45,10 +45,10 @@ describe('Transaction model', () => {
     await expect(Transaction.create(noHash)).rejects.toThrow();
   });
 
-  it('defaults price to "0"', async () => {
+  it('defaults price to 0', async () => {
     const { price: _, ...noPrice } = validTx;
     const tx = await Transaction.create(noPrice);
-    expect(tx.price).toBe('0');
+    expect(tx.price).toBe(0);
   });
 
   it('accepts all valid types', async () => {

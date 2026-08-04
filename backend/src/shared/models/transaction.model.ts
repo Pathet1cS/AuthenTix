@@ -3,10 +3,10 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface ITransaction extends Document {
   txHash: string;
   type: 'mint' | 'transfer' | 'resell';
-  tokenId: number;
+  tokenId: string;
   fromWallet: string;
   toWallet: string;
-  price: string;
+  price: number;
   timestamp: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -25,7 +25,7 @@ const transactionSchema = new Schema<ITransaction>(
       required: true,
     },
     tokenId: {
-      type: Number,
+      type: String,
       required: true,
     },
     fromWallet: {
@@ -41,8 +41,8 @@ const transactionSchema = new Schema<ITransaction>(
       trim: true,
     },
     price: {
-      type: String,
-      default: '0',
+      type: Number,
+      default: 0,
     },
     timestamp: {
       type: Date,

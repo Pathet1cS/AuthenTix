@@ -8,7 +8,7 @@ afterEach(async () => { await clearCollections(); });
 
 describe('Ticket model', () => {
   const validTicket = {
-    tokenId: 1,
+    tokenId: '1',
     eventId: new mongoose.Types.ObjectId(),
     ownerWallet: '0xAbCd0000000000000000000000000000000000FF',
     tokenURI: 'ipfs://QmTestTokenURI',
@@ -18,7 +18,7 @@ describe('Ticket model', () => {
 
   it('creates a ticket with defaults', async () => {
     const ticket = await Ticket.create(validTicket);
-    expect(ticket.tokenId).toBe(1);
+    expect(ticket.tokenId).toBe('1');
     expect(ticket.ownerWallet).toBe(validTicket.ownerWallet.toLowerCase());
     expect(ticket.isUsed).toBe(false);
     expect(ticket.usedAt).toBeNull();

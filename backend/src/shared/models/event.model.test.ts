@@ -12,8 +12,8 @@ describe('Event model', () => {
     name: 'Web3 Conference',
     description: 'A conference about Web3 technologies',
     eventDate: new Date('2026-12-01'),
-    ticketPrice: '50000000000000000',
-    maxResalePrice: '75000000000000000',
+    ticketPrice: 50000,
+    maxResalePrice: 75000,
     saleDeadline: new Date('2026-11-30'),
     totalCapacity: 500,
     remainingQuota: 500,
@@ -31,6 +31,11 @@ describe('Event model', () => {
   it('accepts explicit status', async () => {
     const event = await Event.create({ ...validEvent, status: 'active' });
     expect(event.status).toBe('active');
+  });
+
+  it('accepts soldout status', async () => {
+    const event = await Event.create({ ...validEvent, status: 'soldout' });
+    expect(event.status).toBe('soldout');
   });
 
   it('rejects invalid status', async () => {

@@ -5,13 +5,13 @@ export interface IEvent extends Document {
   name: string;
   description: string;
   eventDate: Date;
-  ticketPrice: string;
-  maxResalePrice: string;
+  ticketPrice: number;
+  maxResalePrice: number;
   saleDeadline: Date;
   totalCapacity: number;
   remainingQuota: number;
   posterCID: string;
-  status: 'draft' | 'active' | 'ended' | 'cancelled';
+  status: 'draft' | 'active' | 'soldout' | 'ended' | 'cancelled';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -37,11 +37,11 @@ const eventSchema = new Schema<IEvent>(
       required: true,
     },
     ticketPrice: {
-      type: String,
+      type: Number,
       required: true,
     },
     maxResalePrice: {
-      type: String,
+      type: Number,
       required: true,
     },
     saleDeadline: {
@@ -64,7 +64,7 @@ const eventSchema = new Schema<IEvent>(
     },
     status: {
       type: String,
-      enum: ['draft', 'active', 'ended', 'cancelled'],
+      enum: ['draft', 'active', 'soldout', 'ended', 'cancelled'],
       default: 'draft',
     },
   },

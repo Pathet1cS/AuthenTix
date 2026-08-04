@@ -1,7 +1,7 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
 export interface ITicket extends Document {
-  tokenId: number;
+  tokenId: string;
   eventId: Types.ObjectId;
   ownerWallet: string;
   tokenURI: string;
@@ -17,7 +17,7 @@ export interface ITicket extends Document {
 const ticketSchema = new Schema<ITicket>(
   {
     tokenId: {
-      type: Number,
+      type: String,
       required: true,
       unique: true,
     },
