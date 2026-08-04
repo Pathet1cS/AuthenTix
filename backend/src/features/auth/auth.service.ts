@@ -1,6 +1,7 @@
 import { User } from '@/shared/models';
 import { env } from '@/config/env';
 import { verifyWalletSignature } from '@/shared/utils/signature';
+import { getThirdwebUserEmail } from '@/shared/utils/thirdwebUser';
 import { signToken } from '@/shared/utils/jwt';
 import { createError } from '@/shared/utils/appError';
 import { LOGIN_STATEMENT, LoginRequest, serializeLoginPayload } from './auth.schema';
@@ -70,6 +71,19 @@ export async function login(request: LoginRequest): Promise<LoginResult> {
   // the platform assigned, and a new one always starts as a buyer.
   let user = await User.findOne({ walletAddress });
   if (!user) {
+    // `email` is self-asserted by the client and lands in a UNIQUE column, so
+    // anyone could otherwise squat on a stranger's address with a throwaway
+    // wallet. Confirm with Thirdweb that this wallet really owns the email.
+    // Only on the create path: a returning user is already established, which
+    // also keeps the common login free of a network round-trip.
+    const verifiedEmail = await getThirdwebUserEmail(payload.address);
+    if (verifiedEmail === null) {
+      throw createError('Wallet is not a registered Thirdweb account', 401);
+    }
+    if (verifiedEmail.toLowerCase() !== payload.email.toLowerCase()) {
+      throw createError('Email does not match wallet', 401);
+    }
+
     try {
       user = await User.create({
         walletAddress,

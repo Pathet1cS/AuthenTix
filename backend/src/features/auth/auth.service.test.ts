@@ -6,11 +6,17 @@ jest.mock('@/config/env', () => ({
   },
 }));
 
+// Never let a test reach the Thirdweb API.
+jest.mock('@/shared/utils/thirdwebUser', () => ({
+  getThirdwebUserEmail: jest.fn(),
+}));
+
 import { Wallet } from 'ethers';
 import { setupTestDB, teardownTestDB, clearCollections } from '@/shared/models/__tests__/setup';
 import { User } from '@/shared/models';
 import { verifyToken } from '@/shared/utils/jwt';
 import * as signatureUtil from '@/shared/utils/signature';
+import { getThirdwebUserEmail } from '@/shared/utils/thirdwebUser';
 import {
   serializeLoginPayload,
   LOGIN_STATEMENT,
@@ -19,8 +25,14 @@ import {
 } from './auth.schema';
 import { login } from './auth.service';
 
+const mockGetThirdwebUserEmail = getThirdwebUserEmail as jest.Mock;
+
 beforeAll(async () => { await setupTestDB(); }, 30_000);
 afterAll(async () => { await teardownTestDB(); });
+beforeEach(() => {
+  mockGetThirdwebUserEmail.mockReset();
+  mockGetThirdwebUserEmail.mockResolvedValue('user@example.com');
+});
 afterEach(async () => { await clearCollections(); jest.restoreAllMocks(); });
 
 async function buildRequest(
@@ -225,11 +237,85 @@ describe('login — duplicate key handling', () => {
     });
 
     const newWallet = Wallet.createRandom();
+    // Thirdweb genuinely holds this email for the new wallet, so the request
+    // gets past email verification and reaches the unique index.
+    mockGetThirdwebUserEmail.mockResolvedValue('taken@example.com');
     const req = await buildRequest({ email: 'taken@example.com' }, newWallet);
 
     await expect(login(req)).rejects.toMatchObject({
       message: 'Email already registered',
       statusCode: 409,
     });
+  });
+});
+
+describe('login — Thirdweb email verification', () => {
+  it('creates the user when Thirdweb reports the same email', async () => {
+    const req = await buildRequest();
+    const result = await login(req);
+
+    expect(mockGetThirdwebUserEmail).toHaveBeenCalledWith(req.payload.address);
+    expect(await User.countDocuments()).toBe(1);
+    expect(result.token).toEqual(expect.any(String));
+  });
+
+  it('accepts a Thirdweb email that differs only in case', async () => {
+    mockGetThirdwebUserEmail.mockResolvedValue('User@Example.COM');
+    const result = await login(await buildRequest({ email: 'user@example.com' }));
+
+    expect(result.userId).toEqual(expect.any(String));
+    expect(await User.countDocuments()).toBe(1);
+  });
+
+  it('rejects a claimed email Thirdweb does not back with 401', async () => {
+    mockGetThirdwebUserEmail.mockResolvedValue('real-owner@example.com');
+    await expect(login(await buildRequest({ email: 'victim@corp.com' }))).rejects.toMatchObject({
+      message: 'Email does not match wallet',
+      statusCode: 401,
+    });
+  });
+
+  it('does not create a user when the claimed email is not backed', async () => {
+    mockGetThirdwebUserEmail.mockResolvedValue('real-owner@example.com');
+    await expect(login(await buildRequest({ email: 'victim@corp.com' }))).rejects.toThrow();
+    expect(await User.countDocuments()).toBe(0);
+  });
+
+  it('rejects a wallet Thirdweb does not know with 401', async () => {
+    mockGetThirdwebUserEmail.mockResolvedValue(null);
+    await expect(login(await buildRequest())).rejects.toMatchObject({
+      message: 'Wallet is not a registered Thirdweb account',
+      statusCode: 401,
+    });
+  });
+
+  it('does not create a user when Thirdweb returns no account', async () => {
+    mockGetThirdwebUserEmail.mockResolvedValue(null);
+    await expect(login(await buildRequest())).rejects.toThrow();
+    expect(await User.countDocuments()).toBe(0);
+  });
+
+  it('does not query Thirdweb for a returning wallet', async () => {
+    const wallet = Wallet.createRandom();
+    await login(await buildRequest({}, wallet));
+    expect(mockGetThirdwebUserEmail).toHaveBeenCalledTimes(1);
+
+    mockGetThirdwebUserEmail.mockClear();
+    await login(await buildRequest({ nonce: 'second' }, wallet));
+
+    // The common path must stay free of a network round-trip.
+    expect(mockGetThirdwebUserEmail).not.toHaveBeenCalled();
+    expect(await User.countDocuments()).toBe(1);
+  });
+
+  it('does not query Thirdweb when the signature is rejected', async () => {
+    jest.spyOn(signatureUtil, 'verifyWalletSignature').mockResolvedValue(false);
+    await expect(login(await buildRequest())).rejects.toThrow('Invalid signature');
+    expect(mockGetThirdwebUserEmail).not.toHaveBeenCalled();
+  });
+
+  it('does not query Thirdweb when the domain does not match', async () => {
+    await expect(login(await buildRequest({ domain: 'evil.example.com' }))).rejects.toThrow();
+    expect(mockGetThirdwebUserEmail).not.toHaveBeenCalled();
   });
 });

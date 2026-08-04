@@ -6,14 +6,26 @@ jest.mock('@/config/env', () => ({
   },
 }));
 
+// Never let a test reach the Thirdweb API.
+jest.mock('@/shared/utils/thirdwebUser', () => ({
+  getThirdwebUserEmail: jest.fn(),
+}));
+
 import request from 'supertest';
 import { Wallet } from 'ethers';
 import { app } from '@/app';
 import { setupTestDB, teardownTestDB, clearCollections } from '@/shared/models/__tests__/setup';
+import { getThirdwebUserEmail } from '@/shared/utils/thirdwebUser';
 import { serializeLoginPayload, LOGIN_STATEMENT, LoginPayload } from './auth.schema';
+
+const mockGetThirdwebUserEmail = getThirdwebUserEmail as jest.Mock;
 
 beforeAll(async () => { await setupTestDB(); }, 30_000);
 afterAll(async () => { await teardownTestDB(); });
+beforeEach(() => {
+  mockGetThirdwebUserEmail.mockReset();
+  mockGetThirdwebUserEmail.mockResolvedValue('user@example.com');
+});
 afterEach(async () => { await clearCollections(); });
 
 async function signedBody(overrides: Partial<LoginPayload> = {}) {
