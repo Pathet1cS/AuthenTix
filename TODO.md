@@ -64,13 +64,13 @@ AuthenTix/
 
 ## ⚙️ 2. Backend API & Event Listener (`backend/`)
 
-- [ ] **TASK-BE-01: Backend Architecture & Server Setup**
+- [x] **TASK-BE-01: Backend Architecture & Server Setup**
   - Initialize Node.js + Express + TypeScript project structure.
   - Set up environment variable validation (`dotenv` / `zod`).
   - Connect to MongoDB database with Mongoose.
   - Configure global error handling and response formatter middleware.
 
-- [ ] **TASK-BE-02: Database Models & Schemas**
+- [x] **TASK-BE-02: Database Models & Schemas**
   - Define `User` schema (`walletAddress` [unique], `email` [unique], `name`, `role`).
   - Define `Event` schema (`organizerId`, `name`, `description`, `eventDate`, `ticketPrice`, `maxResalePrice`, `saleDeadline`, `totalCapacity`, `remainingQuota`, `posterCID`, `status`).
   - Define `Ticket` schema (`tokenId` [unique], `eventId`, `ownerWallet`, `tokenURI`, `mintTxHash`, `lastTransferTxHash`, `blockNumber`, `isUsed`, `usedAt`).
