@@ -72,4 +72,21 @@ describe('authenticateJWT', () => {
     const { req } = run('Bearer garbage');
     expect(req.user).toBeUndefined();
   });
+
+  it('lets a synchronous error thrown by the downstream next handler propagate, rather than reporting it as an invalid token', () => {
+    const req = { headers: { authorization: `Bearer ${signToken(claims)}` } } as Request;
+    const boom = new Error('downstream boom');
+    let callCount = 0;
+    // Throws only on the first call, so a buggy second call (re-invoking next with a
+    // relabeled 401 AppError) would be observable instead of masked by a second throw.
+    const next = jest.fn(() => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw boom;
+      }
+    }) as unknown as NextFunction;
+
+    expect(() => authenticateJWT(req, {} as Response, next)).toThrow(boom);
+    expect(callCount).toBe(1);
+  });
 });

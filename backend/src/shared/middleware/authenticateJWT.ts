@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken } from '@/shared/utils/jwt';
+import { verifyToken, JwtPayload } from '@/shared/utils/jwt';
 import { createError } from '@/shared/utils/appError';
 
 const BEARER_PREFIX = 'Bearer ';
@@ -18,16 +18,19 @@ export function authenticateJWT(req: Request, _res: Response, next: NextFunction
     return;
   }
 
+  let claims: JwtPayload;
   try {
-    const claims = verifyToken(token);
-    req.user = {
-      userId: claims.sub,
-      walletAddress: claims.walletAddress,
-      role: claims.role,
-    };
-    next();
+    claims = verifyToken(token);
   } catch {
     // Deliberately generic: do not distinguish expired from forged.
     next(createError('Invalid or expired token', 401));
+    return;
   }
+
+  req.user = {
+    userId: claims.sub,
+    walletAddress: claims.walletAddress,
+    role: claims.role,
+  };
+  next();
 }
