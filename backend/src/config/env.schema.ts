@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const envSchema = z.object({
   PORT: z.string().default('3001'),
   MONGO_URI: z.string().min(1, 'MONGO_URI is required'),
-  JWT_SECRET: z.string().min(1, 'JWT_SECRET is required'),
+  JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   THIRDWEB_CLIENT_ID: z.string().min(1, 'THIRDWEB_CLIENT_ID is required'),
   THIRDWEB_SECRET_KEY: z.string().min(1, 'THIRDWEB_SECRET_KEY is required'),
   RELAYER_PRIVATE_KEY: z.string().min(1, 'RELAYER_PRIVATE_KEY is required'),
