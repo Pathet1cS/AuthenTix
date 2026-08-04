@@ -11,6 +11,7 @@ const validEnv = {
   PINATA_SECRET_KEY: 'pinata_secret',
   CONTRACT_ADDRESS: '0xContractAddr',
   RPC_URL: 'https://sepolia.optimism.io',
+  AUTH_DOMAIN: 'localhost:3000',
 };
 
 describe('envSchema', () => {
@@ -37,5 +38,14 @@ describe('envSchema', () => {
 
   it('rejects an invalid RPC_URL', () => {
     expect(envSchema.safeParse({ ...validEnv, RPC_URL: 'not-a-url' }).success).toBe(false);
+  });
+
+  it('rejects when AUTH_DOMAIN is missing', () => {
+    const { AUTH_DOMAIN: _, ...without } = validEnv;
+    expect(envSchema.safeParse(without).success).toBe(false);
+  });
+
+  it('rejects an empty AUTH_DOMAIN', () => {
+    expect(envSchema.safeParse({ ...validEnv, AUTH_DOMAIN: '' }).success).toBe(false);
   });
 });

@@ -1,5 +1,9 @@
 jest.mock('@/config/env', () => ({
-  env: { JWT_SECRET: 'test-jwt-secret', THIRDWEB_SECRET_KEY: 'test-thirdweb-secret' },
+  env: {
+    JWT_SECRET: 'test-jwt-secret',
+    THIRDWEB_SECRET_KEY: 'test-thirdweb-secret',
+    AUTH_DOMAIN: 'localhost:3000',
+  },
 }));
 
 import { Wallet } from 'ethers';
@@ -7,7 +11,12 @@ import { setupTestDB, teardownTestDB, clearCollections } from '@/shared/models/_
 import { User } from '@/shared/models';
 import { verifyToken } from '@/shared/utils/jwt';
 import * as signatureUtil from '@/shared/utils/signature';
-import { serializeLoginPayload, LoginPayload, LoginRequest } from './auth.schema';
+import {
+  serializeLoginPayload,
+  LOGIN_STATEMENT,
+  LoginPayload,
+  LoginRequest,
+} from './auth.schema';
 import { login } from './auth.service';
 
 beforeAll(async () => { await setupTestDB(); }, 30_000);
@@ -20,6 +29,8 @@ async function buildRequest(
 ): Promise<LoginRequest> {
   const now = Date.now();
   const payload: LoginPayload = {
+    domain: 'localhost:3000',
+    statement: LOGIN_STATEMENT,
     address: wallet.address,
     email: 'user@example.com',
     name: 'Alice',
@@ -128,6 +139,57 @@ describe('login — rejection', () => {
   it('attaches statusCode 401 to rejections', async () => {
     jest.spyOn(signatureUtil, 'verifyWalletSignature').mockResolvedValue(false);
     await expect(login(await buildRequest())).rejects.toMatchObject({ statusCode: 401 });
+  });
+});
+
+describe('login — domain binding', () => {
+  it('accepts a payload bound to the configured domain', async () => {
+    const result = await login(await buildRequest({ domain: 'localhost:3000' }));
+    expect(result.token).toEqual(expect.any(String));
+  });
+
+  it('rejects a payload signed for a different domain with 401', async () => {
+    const req = await buildRequest({ domain: 'evil.example.com' });
+    await expect(login(req)).rejects.toMatchObject({
+      message: 'Invalid login domain',
+      statusCode: 401,
+    });
+  });
+
+  it('does not create a user when the domain does not match', async () => {
+    await expect(login(await buildRequest({ domain: 'evil.example.com' }))).rejects.toThrow();
+    expect(await User.countDocuments()).toBe(0);
+  });
+
+  it('rejects a mismatched domain before verifying the signature', async () => {
+    // The signature check is the one that can reach the network, so a wrong
+    // domain must short-circuit ahead of it.
+    const spy = jest.spyOn(signatureUtil, 'verifyWalletSignature');
+    await expect(login(await buildRequest({ domain: 'evil.example.com' }))).rejects.toThrow();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('rejects a domain that differs only in case', async () => {
+    await expect(login(await buildRequest({ domain: 'LOCALHOST:3000' }))).rejects.toThrow(
+      'Invalid login domain',
+    );
+  });
+});
+
+describe('login — statement binding', () => {
+  it('rejects a payload carrying a substituted statement with 401', async () => {
+    const req = await buildRequest({ statement: 'Approve this transfer' });
+    await expect(login(req)).rejects.toMatchObject({
+      message: 'Invalid login statement',
+      statusCode: 401,
+    });
+  });
+
+  it('does not create a user when the statement does not match', async () => {
+    await expect(
+      login(await buildRequest({ statement: 'Approve this transfer' })),
+    ).rejects.toThrow();
+    expect(await User.countDocuments()).toBe(0);
   });
 });
 

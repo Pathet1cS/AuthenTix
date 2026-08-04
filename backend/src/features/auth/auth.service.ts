@@ -1,8 +1,9 @@
 import { User } from '@/shared/models';
+import { env } from '@/config/env';
 import { verifyWalletSignature } from '@/shared/utils/signature';
 import { signToken } from '@/shared/utils/jwt';
 import { createError } from '@/shared/utils/appError';
-import { LoginRequest, serializeLoginPayload } from './auth.schema';
+import { LOGIN_STATEMENT, LoginRequest, serializeLoginPayload } from './auth.schema';
 
 const MAX_VALIDITY_MS = 5 * 60 * 1000;
 const CLOCK_SKEW_MS = 60 * 1000;
@@ -41,6 +42,15 @@ export async function login(request: LoginRequest): Promise<LoginResult> {
   }
   if (expiresAt - issuedAt > MAX_VALIDITY_MS) {
     throw createError('Login payload validity window too long', 401);
+  }
+
+  // Domain binding is checked before the signature so a payload signed for
+  // another dApp is rejected without ever reaching the (billed) RPC path.
+  if (payload.domain !== env.AUTH_DOMAIN) {
+    throw createError('Invalid login domain', 401);
+  }
+  if (payload.statement !== LOGIN_STATEMENT) {
+    throw createError('Invalid login statement', 401);
   }
 
   // Sign over the re-serialised payload, never the raw request body, so that

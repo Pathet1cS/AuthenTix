@@ -1,3 +1,13 @@
+// The app's import graph reaches @/config/env, which exits the process on an
+// incomplete environment. Mock it so the suite never depends on a local .env.
+jest.mock('@/config/env', () => ({
+  env: {
+    JWT_SECRET: 'test-jwt-secret',
+    THIRDWEB_SECRET_KEY: 'test-thirdweb-secret',
+    AUTH_DOMAIN: 'localhost:3000',
+  },
+}));
+
 import request from 'supertest';
 import { app } from './app';
 

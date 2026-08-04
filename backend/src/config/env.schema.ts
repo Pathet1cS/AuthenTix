@@ -11,6 +11,7 @@ export const envSchema = z.object({
   PINATA_SECRET_KEY: z.string().min(1, 'PINATA_SECRET_KEY is required'),
   CONTRACT_ADDRESS: z.string().min(1, 'CONTRACT_ADDRESS is required'),
   RPC_URL: z.string().url('RPC_URL must be a valid URL'),
+  AUTH_DOMAIN: z.string().min(1, 'AUTH_DOMAIN is required'),
 });
 
 export type Env = z.infer<typeof envSchema>;
