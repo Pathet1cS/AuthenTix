@@ -122,6 +122,28 @@ describe('uploadImageToIpfs', () => {
     expect(mockUploadFile).not.toHaveBeenCalled();
   });
 
+  it('rejects an Object.prototype key used as the MIME type', async () => {
+    await expect(
+      uploadImageToIpfs({
+        buffer: png(),
+        originalName: 'a.png',
+        mimeType: 'constructor',
+      }),
+    ).rejects.toMatchObject({ message: 'Unsupported poster format', statusCode: 400 });
+    expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it('rejects __proto__ used as the MIME type', async () => {
+    await expect(
+      uploadImageToIpfs({
+        buffer: png(),
+        originalName: 'a.png',
+        mimeType: '__proto__',
+      }),
+    ).rejects.toMatchObject({ message: 'Unsupported poster format', statusCode: 400 });
+    expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
   it('rejects a buffer over the 5MB limit', async () => {
     const oversize = Buffer.concat([Buffer.from(PNG_MAGIC), Buffer.alloc(5 * 1024 * 1024)]);
 

@@ -19,23 +19,35 @@ interface ImageFormat {
   hasSignature: (buffer: Buffer) => boolean;
 }
 
-const ALLOWED_IMAGE_FORMATS: Record<string, ImageFormat> = {
-  'image/jpeg': {
-    ext: 'jpg',
-    hasSignature: (b) => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
-  },
-  'image/png': {
-    ext: 'png',
-    hasSignature: (b) => b.length >= 8 && b.subarray(0, 8).equals(PNG_SIGNATURE),
-  },
-  'image/webp': {
-    ext: 'webp',
-    hasSignature: (b) =>
-      b.length >= 12 &&
-      b.subarray(0, 4).toString('ascii') === 'RIFF' &&
-      b.subarray(8, 12).toString('ascii') === 'WEBP',
-  },
-};
+// A Map (rather than a plain object) so an attacker-controlled mimeType like
+// 'constructor' or '__proto__' can never resolve to an inherited
+// Object.prototype member instead of `undefined`.
+const ALLOWED_IMAGE_FORMATS = new Map<string, ImageFormat>([
+  [
+    'image/jpeg',
+    {
+      ext: 'jpg',
+      hasSignature: (b) => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+    },
+  ],
+  [
+    'image/png',
+    {
+      ext: 'png',
+      hasSignature: (b) => b.length >= 8 && b.subarray(0, 8).equals(PNG_SIGNATURE),
+    },
+  ],
+  [
+    'image/webp',
+    {
+      ext: 'webp',
+      hasSignature: (b) =>
+        b.length >= 12 &&
+        b.subarray(0, 4).toString('ascii') === 'RIFF' &&
+        b.subarray(8, 12).toString('ascii') === 'WEBP',
+    },
+  ],
+]);
 
 /**
  * The uploader controls `originalName`, and it becomes Pinata display metadata.
@@ -76,7 +88,7 @@ export async function uploadJsonToIpfs(data: unknown, name: string): Promise<str
 }
 
 export async function uploadImageToIpfs(file: UploadFile): Promise<string> {
-  const format = ALLOWED_IMAGE_FORMATS[file.mimeType];
+  const format = ALLOWED_IMAGE_FORMATS.get(file.mimeType);
   if (!format) {
     throw createError('Unsupported poster format', 400);
   }
