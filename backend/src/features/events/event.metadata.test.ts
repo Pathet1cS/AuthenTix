@@ -7,7 +7,7 @@ jest.mock('@/shared/utils/ipfs', () => ({
   toIpfsUri: (cid: string) => `ipfs://${cid}`,
 }));
 
-import { buildEventMetadata } from './event.metadata';
+import { buildEventMetadata, uploadEventAssets } from './event.metadata';
 
 const input = {
   name: 'Web3 Conference',
@@ -19,6 +19,11 @@ const input = {
   maxResalePrice: 75000,
   totalCapacity: 500,
 };
+
+beforeEach(() => {
+  mockUploadImage.mockReset();
+  mockUploadJson.mockReset();
+});
 
 describe('buildEventMetadata', () => {
   it('produces the documented ERC-721 shape', () => {
@@ -44,5 +49,60 @@ describe('buildEventMetadata', () => {
     const metadata = buildEventMetadata(input);
     expect(metadata.attributes[0].value).toBe(input.eventDate.getTime() / 1000);
     expect(metadata.attributes[1].value).toBe(input.saleDeadline.getTime() / 1000);
+  });
+});
+
+describe('uploadEventAssets', () => {
+  const poster = {
+    buffer: Buffer.from([0xff, 0xd8, 0xff]),
+    originalName: 'poster.jpg',
+    mimeType: 'image/jpeg',
+  };
+
+  const { posterCID: _ignored, ...eventInput } = input;
+
+  it('returns both CIDs', async () => {
+    mockUploadImage.mockResolvedValue('bafyPoster');
+    mockUploadJson.mockResolvedValue('bafyMetadata');
+
+    await expect(uploadEventAssets(poster, eventInput)).resolves.toEqual({
+      posterCID: 'bafyPoster',
+      metadataCID: 'bafyMetadata',
+    });
+  });
+
+  it('uploads metadata that references the poster CID just returned', async () => {
+    mockUploadImage.mockResolvedValue('bafyFresh');
+    mockUploadJson.mockResolvedValue('bafyMetadata');
+
+    await uploadEventAssets(poster, eventInput);
+
+    expect(mockUploadImage).toHaveBeenCalledWith(poster);
+    const [metadata, name] = mockUploadJson.mock.calls[0];
+    expect(metadata.image).toBe('ipfs://bafyFresh');
+    expect(name).toBe('metadata.json');
+  });
+
+  it('does not attempt the metadata upload when the poster upload fails', async () => {
+    mockUploadImage.mockRejectedValue(
+      Object.assign(new Error('IPFS upload failed'), { statusCode: 502 }),
+    );
+
+    await expect(uploadEventAssets(poster, eventInput)).rejects.toMatchObject({
+      message: 'IPFS upload failed',
+      statusCode: 502,
+    });
+    expect(mockUploadJson).not.toHaveBeenCalled();
+  });
+
+  it('propagates a metadata upload failure', async () => {
+    mockUploadImage.mockResolvedValue('bafyPoster');
+    mockUploadJson.mockRejectedValue(
+      Object.assign(new Error('IPFS upload failed'), { statusCode: 502 }),
+    );
+
+    await expect(uploadEventAssets(poster, eventInput)).rejects.toMatchObject({
+      statusCode: 502,
+    });
   });
 });

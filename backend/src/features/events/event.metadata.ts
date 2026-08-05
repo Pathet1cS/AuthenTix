@@ -1,4 +1,9 @@
-import { toIpfsUri } from '@/shared/utils/ipfs';
+import {
+  UploadFile,
+  toIpfsUri,
+  uploadImageToIpfs,
+  uploadJsonToIpfs,
+} from '@/shared/utils/ipfs';
 
 export interface EventMetadataInput {
   name: string;
@@ -47,4 +52,25 @@ export function buildEventMetadata(input: EventMetadataInput): Erc721Metadata {
       { trait_type: 'Total Capacity', value: input.totalCapacity },
     ],
   };
+}
+
+export interface EventAssets {
+  posterCID: string;
+  metadataCID: string;
+}
+
+/**
+ * FR-03: poster to IPFS, then metadata JSON referencing it. Fail fast — if the
+ * metadata upload fails the poster stays pinned and unreferenced, which costs a
+ * few KB and avoids a cleanup path that could fail in turn.
+ */
+export async function uploadEventAssets(
+  poster: UploadFile,
+  event: Omit<EventMetadataInput, 'posterCID'>,
+): Promise<EventAssets> {
+  const posterCID = await uploadImageToIpfs(poster);
+  const metadata = buildEventMetadata({ ...event, posterCID });
+  const metadataCID = await uploadJsonToIpfs(metadata, 'metadata.json');
+
+  return { posterCID, metadataCID };
 }
