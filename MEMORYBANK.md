@@ -9,8 +9,8 @@
 ## 🎯 Current Status / Active Task
 
 - **Focus:** Phase 2 - Backend API (`backend/`) — **IN PROGRESS**
-- **Status:** TASK-BE-01 (Server Setup), TASK-BE-02 (Database Models), and TASK-BE-03 (Authentication) completed. 153 backend tests passing.
-- **Next Focus:** TASK-BE-04 (IPFS / Pinata Metadata Upload Service).
+- **Status:** TASK-BE-01 (Server Setup), TASK-BE-02 (Database Models), TASK-BE-03 (Authentication), and TASK-BE-04 (IPFS Metadata Upload) completed. 186 backend tests passing.
+- **Next Focus:** TASK-BE-05 (Event Management API).
 
 ---
 
@@ -32,6 +32,7 @@
 - [x] **TASK-BE-02: Database Models & Schemas:** 5 Mongoose models (`User`, `Event`, `Ticket`, `Transaction`, `SyncState`) with validation, unique constraints, indexes, and type-safe interfaces aligned with PRD Section 10. `mongodb-memory-server` test infrastructure. 32 model tests (48 total).
 - [x] **TASK-BE-03: Authentication & Thirdweb Embedded Wallet Integration:** `POST /api/auth/login` verifying a client-signed payload via `verifySignature` from `thirdweb/auth` (handles both EOA and smart-account wallets). The signed message is domain-bound — it carries `domain` and `statement` fields checked against `AUTH_DOMAIN` and `LOGIN_STATEMENT`, so a signature harvested by another site cannot be replayed here. On first signup the claimed email is verified against Thirdweb via `getUser` before the `User` is created, closing an email-squatting hole; returning logins skip that call and stay network-free. Users are always seeded as `buyer`, with duplicate-key handling (concurrent same-wallet signup resolves idempotently; an email already tied to another wallet returns 409). Issues a 7-day JWT. Ships `authenticateJWT` and variadic `authorizeRole(...)`, the latter re-reading the stored role for organizer/admin gates so a demotion takes effect immediately. 105 tests. Known gap: login replay within the 5-minute payload window is still open until TASK-BE-08 builds the nonce store required by SR-05/SR-06.
 - [x] **Security hardening (from BE-03 review):** global error handler no longer echoes internal error text to clients, `JWT_SECRET` requires 32+ characters, all login payload fields are length-bounded, and the Jest suite runs serially so `npm test` is green by default.
+- [x] **TASK-BE-04: IPFS Metadata Upload Service:** Pinata SDK v2 wired through `config/pinata.ts` with JWT auth (`PINATA_JWT`/`PINATA_GATEWAY` replace the legacy key/secret pair). `shared/utils/ipfs.ts` is the single path to Pinata: it caps posters at 5MB, allows only JPEG/PNG/WebP, and verifies magic bytes against the declared MIME type so a script-bearing SVG cannot masquerade as an image on a public gateway. Uploader-supplied file names are sanitised to `[A-Za-z0-9._-]` and capped at 100 characters. Every Pinata failure — thrown error or a response with no CID — becomes a flat 502 `IPFS upload failed`, with the original logged server-side only. `features/events/event.metadata.ts` builds the ERC-721 document (dates as Unix seconds, `image` as `ipfs://<posterCID>`) and `uploadEventAssets` runs the FR-03 sequence, returning both CIDs. Metadata is per-event: every ticket of an event shares one `tokenURI`, and uniqueness lives in the on-chain `tokenId`. Fail fast, no retry, no unpin — a failed metadata upload leaves an orphaned poster pin. `Event` gains `metadataCID`. 186 tests.
 
 ---
 
@@ -41,7 +42,7 @@
 - [x] Initialize Express + TypeScript project & MongoDB Mongoose connection.
 - [x] Implement database models (`User`, `Event`, `Ticket`, `Transaction`, `SyncState`).
 - [x] Implement Thirdweb Embedded Wallet authentication & JWT middleware.
-- [ ] Implement IPFS / Pinata metadata upload service.
+- [x] Implement IPFS / Pinata metadata upload service.
 - [ ] Implement Event Management APIs (`POST /api/events`, `GET /api/events`).
 - [ ] Implement Ticket Purchase & Relayer Minting service with retry logic.
 - [ ] Implement Dynamic 30s QR Verification Engine (`POST /api/tickets/verify`).
