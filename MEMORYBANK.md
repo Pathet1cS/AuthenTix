@@ -2,14 +2,14 @@
 
 > **Application:** Web3 Decentralized E-Ticketing Platform (AuthenTix)  
 > **Current Phase:** Phase 2 — Backend API & Event Listener (`backend/`)  
-> **Last Updated:** 2026-08-04
+> **Last Updated:** 2026-08-05
 
 ---
 
 ## 🎯 Current Status / Active Task
 
 - **Focus:** Phase 2 - Backend API (`backend/`) — **IN PROGRESS**
-- **Status:** TASK-BE-01 (Server Setup), TASK-BE-02 (Database Models), and TASK-BE-03 (Authentication) completed. 98 backend tests passing.
+- **Status:** TASK-BE-01 (Server Setup), TASK-BE-02 (Database Models), and TASK-BE-03 (Authentication) completed. 153 backend tests passing.
 - **Next Focus:** TASK-BE-04 (IPFS / Pinata Metadata Upload Service).
 
 ---
@@ -30,7 +30,8 @@
 - [x] **Verification:** Executed `npx hardhat test` — **All 13 tests PASSED**.
 - [x] **TASK-BE-01: Backend Architecture & Server Setup:** Express 4 + TypeScript 5 + Mongoose 8 scaffold. Zod env validation, global error handler, response helpers (`sendSuccess`/`sendError`), MongoDB connection with single retry, `app.ts`/`server.ts` separation for testability, health endpoint, feature router stubs (`/api/auth`, `/api/events`, `/api/tickets`). 16 tests passing.
 - [x] **TASK-BE-02: Database Models & Schemas:** 5 Mongoose models (`User`, `Event`, `Ticket`, `Transaction`, `SyncState`) with validation, unique constraints, indexes, and type-safe interfaces aligned with PRD Section 10. `mongodb-memory-server` test infrastructure. 32 model tests (48 total).
-- [x] **TASK-BE-03: Authentication & Thirdweb Embedded Wallet Integration:** `POST /api/auth/login` verifying a client-signed payload via `verifySignature` from `thirdweb/auth` (handles both EOA and smart-account wallets), deterministic payload serialisation shared with the frontend, find-or-create `User` always seeded as `buyer` with duplicate-key handling (concurrent same-wallet signup resolves idempotently; an email already tied to another wallet returns 409), 7-day JWT, plus `authenticateJWT` and variadic `authorizeRole(...)` middleware. 50 tests. Known gap: login replay is bounded only by the 5-minute payload window until TASK-BE-08 builds the nonce store required by SR-05/SR-06.
+- [x] **TASK-BE-03: Authentication & Thirdweb Embedded Wallet Integration:** `POST /api/auth/login` verifying a client-signed payload via `verifySignature` from `thirdweb/auth` (handles both EOA and smart-account wallets). The signed message is domain-bound — it carries `domain` and `statement` fields checked against `AUTH_DOMAIN` and `LOGIN_STATEMENT`, so a signature harvested by another site cannot be replayed here. On first signup the claimed email is verified against Thirdweb via `getUser` before the `User` is created, closing an email-squatting hole; returning logins skip that call and stay network-free. Users are always seeded as `buyer`, with duplicate-key handling (concurrent same-wallet signup resolves idempotently; an email already tied to another wallet returns 409). Issues a 7-day JWT. Ships `authenticateJWT` and variadic `authorizeRole(...)`, the latter re-reading the stored role for organizer/admin gates so a demotion takes effect immediately. 105 tests. Known gap: login replay within the 5-minute payload window is still open until TASK-BE-08 builds the nonce store required by SR-05/SR-06.
+- [x] **Security hardening (from BE-03 review):** global error handler no longer echoes internal error text to clients, `JWT_SECRET` requires 32+ characters, all login payload fields are length-bounded, and the Jest suite runs serially so `npm test` is green by default.
 
 ---
 
