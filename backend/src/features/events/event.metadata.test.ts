@@ -50,6 +50,39 @@ describe('buildEventMetadata', () => {
     expect(metadata.attributes[0].value).toBe(input.eventDate.getTime() / 1000);
     expect(metadata.attributes[1].value).toBe(input.saleDeadline.getTime() / 1000);
   });
+
+  it('accepts the Unix epoch, which is falsy but valid', () => {
+    const metadata = buildEventMetadata({ ...input, eventDate: new Date(0) });
+    expect(metadata.attributes[0].value).toBe(0);
+  });
+});
+
+describe('buildEventMetadata invalid dates', () => {
+  function thrown(build: () => unknown): unknown {
+    try {
+      build();
+    } catch (err) {
+      return err;
+    }
+    return new Error('expected buildEventMetadata to throw');
+  }
+
+  it('rejects an Invalid Date event date rather than emitting a null attribute', () => {
+    expect(thrown(() => buildEventMetadata({ ...input, eventDate: new Date('not a date') })))
+      .toMatchObject({ message: 'Invalid event date', statusCode: 400 });
+  });
+
+  it('rejects an Invalid Date sale deadline', () => {
+    expect(thrown(() => buildEventMetadata({ ...input, saleDeadline: new Date('nonsense') })))
+      .toMatchObject({ message: 'Invalid sale deadline', statusCode: 400 });
+  });
+
+  it('never lets a NaN attribute reach JSON.stringify as null', () => {
+    // The regression this guards: JSON.stringify(NaN) === 'null', which is not
+    // a legal Erc721Attribute value and cannot be corrected once pinned.
+    expect(() => JSON.stringify(buildEventMetadata({ ...input, eventDate: new Date(NaN) })))
+      .toThrow('Invalid event date');
+  });
 });
 
 describe('uploadEventAssets', () => {
@@ -104,5 +137,23 @@ describe('uploadEventAssets', () => {
     await expect(uploadEventAssets(poster, eventInput)).rejects.toMatchObject({
       statusCode: 502,
     });
+  });
+
+  it('rejects an Invalid Date event date before uploading anything', async () => {
+    await expect(
+      uploadEventAssets(poster, { ...eventInput, eventDate: new Date('not a date') }),
+    ).rejects.toMatchObject({ message: 'Invalid event date', statusCode: 400 });
+
+    expect(mockUploadImage).not.toHaveBeenCalled();
+    expect(mockUploadJson).not.toHaveBeenCalled();
+  });
+
+  it('rejects an Invalid Date sale deadline before uploading anything', async () => {
+    await expect(
+      uploadEventAssets(poster, { ...eventInput, saleDeadline: new Date('nonsense') }),
+    ).rejects.toMatchObject({ message: 'Invalid sale deadline', statusCode: 400 });
+
+    expect(mockUploadImage).not.toHaveBeenCalled();
+    expect(mockUploadJson).not.toHaveBeenCalled();
   });
 });

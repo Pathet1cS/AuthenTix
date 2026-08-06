@@ -60,6 +60,73 @@ describe('uploadJsonToIpfs', () => {
       statusCode: 502,
     });
   });
+
+  it('rejects a serialised payload over the 5MB limit', async () => {
+    const oversize = { description: 'a'.repeat(5 * 1024 * 1024) };
+
+    await expect(uploadJsonToIpfs(oversize, 'metadata.json')).rejects.toMatchObject({
+      message: 'Upload exceeds 5MB limit',
+      statusCode: 400,
+    });
+    expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it('measures the cap in bytes, not UTF-16 code units', async () => {
+    // Just under the cap in characters, well over it once encoded.
+    const oversize = { description: 'é'.repeat(3 * 1024 * 1024) };
+
+    await expect(uploadJsonToIpfs(oversize, 'metadata.json')).rejects.toMatchObject({
+      message: 'Upload exceeds 5MB limit',
+      statusCode: 400,
+    });
+    expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it('accepts a payload just under the cap', async () => {
+    mockUploadFile.mockResolvedValue({ cid: 'bafyJson' });
+    // {"d":"aaa..."} — 8 bytes of envelope around the string.
+    const nearLimit = { d: 'a'.repeat(5 * 1024 * 1024 - 8) };
+
+    await expect(uploadJsonToIpfs(nearLimit, 'metadata.json')).resolves.toBe('bafyJson');
+  });
+
+  it('maps an unserialisable payload to a 502 without contacting Pinata', async () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    await expect(uploadJsonToIpfs(circular, 'metadata.json')).rejects.toMatchObject({
+      message: 'IPFS upload failed',
+      statusCode: 502,
+    });
+    expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it('sanitises a caller-supplied file name', async () => {
+    mockUploadFile.mockResolvedValue({ cid: 'bafyJson' });
+
+    await uploadJsonToIpfs({ a: 1 }, '../../etc/pa ss"wd\n.json');
+
+    const [fileArg] = mockUploadFile.mock.calls[0] as [File];
+    expect(fileArg.name).toBe('....etcpasswd.json');
+  });
+
+  it('truncates an over-long file name to 100 characters', async () => {
+    mockUploadFile.mockResolvedValue({ cid: 'bafyJson' });
+
+    await uploadJsonToIpfs({ a: 1 }, `${'a'.repeat(200)}.json`);
+
+    const [fileArg] = mockUploadFile.mock.calls[0] as [File];
+    expect(fileArg.name).toHaveLength(100);
+  });
+
+  it('falls back to a default name when sanitising leaves nothing', async () => {
+    mockUploadFile.mockResolvedValue({ cid: 'bafyJson' });
+
+    await uploadJsonToIpfs({ a: 1 }, '???');
+
+    const [fileArg] = mockUploadFile.mock.calls[0] as [File];
+    expect(fileArg.name).toBe('metadata.json');
+  });
 });
 
 const JPEG_MAGIC = [0xff, 0xd8, 0xff];
@@ -227,5 +294,106 @@ describe('uploadImageToIpfs', () => {
     await expect(
       uploadImageToIpfs({ buffer: png(), originalName: 'a.png', mimeType: 'image/png' }),
     ).rejects.toMatchObject({ message: 'IPFS upload failed', statusCode: 502 });
+  });
+});
+
+describe('upload timeout', () => {
+  // Fake timers throughout: a real 30s wait would be the whole suite's budget.
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function neverSettles(): Promise<never> {
+    return new Promise<never>(() => undefined);
+  }
+
+  it('rejects with a 502 once the upload has hung for 30 seconds', async () => {
+    mockUploadFile.mockReturnValue(neverSettles());
+
+    const pending = uploadJsonToIpfs({ a: 1 }, 'metadata.json');
+    const settled = expect(pending).rejects.toMatchObject({
+      message: 'IPFS upload failed',
+      statusCode: 502,
+    });
+
+    await jest.advanceTimersByTimeAsync(30_000);
+    await settled;
+  });
+
+  it('does not reject before the 30 second mark', async () => {
+    mockUploadFile.mockReturnValue(neverSettles());
+
+    const pending = uploadJsonToIpfs({ a: 1 }, 'metadata.json');
+    let outcome = 'pending';
+    void pending.then(
+      () => {
+        outcome = 'resolved';
+      },
+      () => {
+        outcome = 'rejected';
+      },
+    );
+
+    await jest.advanceTimersByTimeAsync(29_999);
+    expect(outcome).toBe('pending');
+    expect(jest.getTimerCount()).toBe(1);
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(outcome).toBe('rejected');
+  });
+
+  it('applies the same timeout to the poster path', async () => {
+    mockUploadFile.mockReturnValue(neverSettles());
+
+    const pending = uploadImageToIpfs({
+      buffer: png(),
+      originalName: 'a.png',
+      mimeType: 'image/png',
+    });
+    const settled = expect(pending).rejects.toMatchObject({
+      message: 'IPFS upload failed',
+      statusCode: 502,
+    });
+
+    await jest.advanceTimersByTimeAsync(30_000);
+    await settled;
+  });
+
+  it('leaves no pending timer after a successful upload', async () => {
+    mockUploadFile.mockResolvedValue({ cid: 'bafyJson' });
+
+    await expect(uploadJsonToIpfs({ a: 1 }, 'metadata.json')).resolves.toBe('bafyJson');
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('leaves no pending timer after a failed upload', async () => {
+    mockUploadFile.mockRejectedValue(new Error('gateway exploded'));
+
+    await expect(uploadJsonToIpfs({ a: 1 }, 'metadata.json')).rejects.toMatchObject({
+      statusCode: 502,
+    });
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('leaves no pending timer after the timeout itself fires', async () => {
+    mockUploadFile.mockReturnValue(neverSettles());
+
+    const pending = uploadJsonToIpfs({ a: 1 }, 'metadata.json');
+    const settled = expect(pending).rejects.toMatchObject({ statusCode: 502 });
+
+    await jest.advanceTimersByTimeAsync(30_000);
+    await settled;
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('starts no timer when validation rejects the payload first', async () => {
+    await expect(
+      uploadJsonToIpfs({ description: 'a'.repeat(5 * 1024 * 1024) }, 'metadata.json'),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(jest.getTimerCount()).toBe(0);
   });
 });

@@ -1,3 +1,4 @@
+import { createError } from '@/shared/utils/appError';
 import {
   UploadFile,
   toIpfsUri,
@@ -29,8 +30,22 @@ export interface Erc721Metadata {
   attributes: Erc721Attribute[];
 }
 
+/**
+ * An Invalid Date is still a `Date` to the compiler, and `new Date(userString)`
+ * is exactly how one arrives here. Left alone it becomes NaN seconds, which
+ * `JSON.stringify` writes as `null` — an attribute that violates the
+ * `Erc721Attribute` contract inside a document that is immutable once pinned
+ * and serves as every ticket's tokenURI. Fail instead.
+ */
+function assertValidDate(date: Date, label: string): void {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    throw createError(`Invalid ${label}`, 400);
+  }
+}
+
 /** `display_type: "date"` is read as Unix seconds, not milliseconds. */
-function toUnixSeconds(date: Date): number {
+function toUnixSeconds(date: Date, label: string): number {
+  assertValidDate(date, label);
   return Math.floor(date.getTime() / 1000);
 }
 
@@ -41,11 +56,15 @@ export function buildEventMetadata(input: EventMetadataInput): Erc721Metadata {
     // The ipfs:// scheme keeps the token independent of any one gateway.
     image: toIpfsUri(input.posterCID),
     attributes: [
-      { trait_type: 'Event Date', display_type: 'date', value: toUnixSeconds(input.eventDate) },
+      {
+        trait_type: 'Event Date',
+        display_type: 'date',
+        value: toUnixSeconds(input.eventDate, 'event date'),
+      },
       {
         trait_type: 'Sale Deadline',
         display_type: 'date',
-        value: toUnixSeconds(input.saleDeadline),
+        value: toUnixSeconds(input.saleDeadline, 'sale deadline'),
       },
       { trait_type: 'Ticket Price', value: input.ticketPrice },
       { trait_type: 'Max Resale Price', value: input.maxResalePrice },
@@ -68,6 +87,11 @@ export async function uploadEventAssets(
   poster: UploadFile,
   event: Omit<EventMetadataInput, 'posterCID'>,
 ): Promise<EventAssets> {
+  // buildEventMetadata only runs once the poster is already pinned, and there
+  // is no unpin. Reject a malformed date before spending an upload on it.
+  assertValidDate(event.eventDate, 'event date');
+  assertValidDate(event.saleDeadline, 'sale deadline');
+
   const posterCID = await uploadImageToIpfs(poster);
   const metadata = buildEventMetadata({ ...event, posterCID });
   const metadataCID = await uploadJsonToIpfs(metadata, 'metadata.json');
