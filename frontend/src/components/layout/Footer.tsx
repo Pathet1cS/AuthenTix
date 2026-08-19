@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Ticket, Github, Twitter, Disc as Discord, BookOpen, ShieldCheck, Activity } from 'lucide-react';
+import { Ticket, Code2, Globe, MessageSquare, BookOpen, ShieldCheck, Activity } from 'lucide-react';
 
 export function Footer() {
   return (
@@ -110,7 +110,7 @@ export function Footer() {
                 className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 transition-all"
                 aria-label="GitHub"
               >
-                <Github className="w-4 h-4" />
+                <Code2 className="w-4 h-4" />
               </a>
               <a
                 href="https://twitter.com"
@@ -119,7 +119,7 @@ export function Footer() {
                 className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 transition-all"
                 aria-label="Twitter"
               >
-                <Twitter className="w-4 h-4" />
+                <Globe className="w-4 h-4" />
               </a>
               <a
                 href="https://discord.com"
@@ -128,7 +128,7 @@ export function Footer() {
                 className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 transition-all"
                 aria-label="Discord"
               >
-                <Discord className="w-4 h-4" />
+                <MessageSquare className="w-4 h-4" />
               </a>
             </div>
           </div>
