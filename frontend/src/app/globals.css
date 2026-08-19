@@ -1,0 +1,47 @@
+@import "tailwindcss";
+@config "../../tailwind.config.ts";
+
+@theme {
+  --color-obsidian: #07090E;
+  --color-obsidian-dark: #07090E;
+  --color-obsidian-card: #0B0F17;
+  --color-obsidian-border: #111827;
+  --color-accent-emerald: #10B981;
+  --color-accent-cyan: #06B6D4;
+  --color-accent-purple: #8B5CF6;
+  --color-accent-indigo: #6366F1;
+}
+
+:root {
+  --background: #07090E;
+  --foreground: #F9FAFB;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  min-height: 100vh;
+}
+
+@layer utilities {
+  .glass-card {
+    background: rgba(11, 15, 23, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(17, 24, 39, 0.8);
+  }
+
+  .glass-card-hover {
+    background: rgba(11, 15, 23, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(17, 24, 39, 0.8);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .glass-card-hover:hover {
+    background: rgba(17, 24, 39, 0.6);
+    border-color: rgba(16, 185, 129, 0.3);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  }
+}
