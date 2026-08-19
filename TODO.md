@@ -77,10 +77,12 @@ AuthenTix/
   - Define `Transaction` schema (`txHash` [unique], `type` [mint|transfer|resell], `tokenId`, `fromWallet`, `toWallet`, `price`, `timestamp`).
   - Define `SyncState` schema (`lastProcessedBlock`).
 
-- [ ] **TASK-BE-03: Authentication & Thirdweb Embedded Wallet Integration**
+- [x] **TASK-BE-03: Authentication & Thirdweb Embedded Wallet Integration**
   - Implement `POST /api/auth/login` (verify Thirdweb auth payload/signature).
   - Issue JWT tokens on successful authentication.
   - Create auth middleware (`authenticateJWT`, `authorizeRole('organizer')`, `authorizeRole('admin')`).
+  - Bind the signed payload to a domain (`AUTH_DOMAIN`) and statement to prevent cross-site signature replay.
+  - Verify the claimed email against Thirdweb (`getUser`) on first signup before creating the user.
 
 - [ ] **TASK-BE-04: IPFS Metadata Upload Service**
   - Integrate Pinata SDK / IPFS client service.

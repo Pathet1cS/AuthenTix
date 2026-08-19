@@ -8,4 +8,8 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
   testTimeout: 30000,
+  // Every DB-touching suite starts its own MongoMemoryServer; running them in
+  // parallel makes the concurrent startups exceed the timeout and the suite
+  // goes red. Serialise so a bare `npm test` (as CI runs it) passes.
+  maxWorkers: 1,
 };

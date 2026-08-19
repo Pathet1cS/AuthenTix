@@ -3,7 +3,7 @@ import { envSchema } from './env.schema';
 const validEnv = {
   PORT: '3001',
   MONGO_URI: 'mongodb://localhost:27017/authentix',
-  JWT_SECRET: 'supersecret',
+  JWT_SECRET: 'a'.repeat(32),
   THIRDWEB_CLIENT_ID: 'client_id',
   THIRDWEB_SECRET_KEY: 'secret_key',
   RELAYER_PRIVATE_KEY: '0xabc',
@@ -11,6 +11,7 @@ const validEnv = {
   PINATA_SECRET_KEY: 'pinata_secret',
   CONTRACT_ADDRESS: '0xContractAddr',
   RPC_URL: 'https://sepolia.optimism.io',
+  AUTH_DOMAIN: 'localhost:3000',
 };
 
 describe('envSchema', () => {
@@ -35,7 +36,28 @@ describe('envSchema', () => {
     expect(envSchema.safeParse(without).success).toBe(false);
   });
 
+  it('rejects a JWT_SECRET shorter than 32 characters', () => {
+    expect(envSchema.safeParse({ ...validEnv, JWT_SECRET: 'a'.repeat(31) }).success).toBe(false);
+  });
+
+  it('rejects a one-character JWT_SECRET', () => {
+    expect(envSchema.safeParse({ ...validEnv, JWT_SECRET: 'x' }).success).toBe(false);
+  });
+
+  it('accepts a JWT_SECRET of exactly 32 characters', () => {
+    expect(envSchema.safeParse({ ...validEnv, JWT_SECRET: 'a'.repeat(32) }).success).toBe(true);
+  });
+
   it('rejects an invalid RPC_URL', () => {
     expect(envSchema.safeParse({ ...validEnv, RPC_URL: 'not-a-url' }).success).toBe(false);
+  });
+
+  it('rejects when AUTH_DOMAIN is missing', () => {
+    const { AUTH_DOMAIN: _, ...without } = validEnv;
+    expect(envSchema.safeParse(without).success).toBe(false);
+  });
+
+  it('rejects an empty AUTH_DOMAIN', () => {
+    expect(envSchema.safeParse({ ...validEnv, AUTH_DOMAIN: '' }).success).toBe(false);
   });
 });
