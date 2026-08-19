@@ -84,10 +84,10 @@ AuthenTix/
   - Bind the signed payload to a domain (`AUTH_DOMAIN`) and statement to prevent cross-site signature replay.
   - Verify the claimed email against Thirdweb (`getUser`) on first signup before creating the user.
 
-- [ ] **TASK-BE-04: IPFS Metadata Upload Service**
-  - Integrate Pinata SDK / IPFS client service.
-  - Implement utility to upload event poster image to IPFS.
-  - Implement metadata JSON builder conforming to ERC-721 token metadata standard and upload to IPFS.
+- [x] **TASK-BE-04: IPFS Metadata Upload Service**
+  - Integrate Pinata SDK (`pinata@2`, JWT auth) as a shared IPFS service.
+  - Implement validated poster upload (5MB cap, JPEG/PNG/WebP allowlist, magic-byte check).
+  - Implement ERC-721 metadata JSON builder and upload; store `metadataCID` on the event.
 
 - [ ] **TASK-BE-05: Event Management API**
   - `POST /api/events`: Create new event, upload metadata to IPFS, and store in MongoDB.

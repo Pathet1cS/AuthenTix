@@ -7,8 +7,7 @@ const validEnv = {
   THIRDWEB_CLIENT_ID: 'client_id',
   THIRDWEB_SECRET_KEY: 'secret_key',
   RELAYER_PRIVATE_KEY: '0xabc',
-  PINATA_API_KEY: 'pinata_key',
-  PINATA_SECRET_KEY: 'pinata_secret',
+  PINATA_JWT: 'pinata_jwt_token',
   CONTRACT_ADDRESS: '0xContractAddr',
   RPC_URL: 'https://sepolia.optimism.io',
   AUTH_DOMAIN: 'localhost:3000',
@@ -59,5 +58,26 @@ describe('envSchema', () => {
 
   it('rejects an empty AUTH_DOMAIN', () => {
     expect(envSchema.safeParse({ ...validEnv, AUTH_DOMAIN: '' }).success).toBe(false);
+  });
+
+  it('rejects when PINATA_JWT is missing', () => {
+    const { PINATA_JWT: _, ...without } = validEnv;
+    expect(envSchema.safeParse(without).success).toBe(false);
+  });
+
+  it('rejects an empty PINATA_JWT', () => {
+    expect(envSchema.safeParse({ ...validEnv, PINATA_JWT: '' }).success).toBe(false);
+  });
+
+  it('defaults PINATA_GATEWAY to an empty string', () => {
+    const result = envSchema.safeParse(validEnv);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.PINATA_GATEWAY).toBe('');
+  });
+
+  it('accepts an explicit PINATA_GATEWAY', () => {
+    const result = envSchema.safeParse({ ...validEnv, PINATA_GATEWAY: 'x.mypinata.cloud' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.PINATA_GATEWAY).toBe('x.mypinata.cloud');
   });
 });

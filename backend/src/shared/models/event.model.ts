@@ -11,6 +11,7 @@ export interface IEvent extends Document {
   totalCapacity: number;
   remainingQuota: number;
   posterCID: string;
+  metadataCID: string;
   status: 'draft' | 'active' | 'soldout' | 'ended' | 'cancelled';
   createdAt: Date;
   updatedAt: Date;
@@ -59,6 +60,10 @@ const eventSchema = new Schema<IEvent>(
       min: 0,
     },
     posterCID: {
+      type: String,
+      default: '',
+    },
+    metadataCID: {
       type: String,
       default: '',
     },
