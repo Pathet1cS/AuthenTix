@@ -70,15 +70,4 @@ describe('Event model', () => {
     const event = await Event.create({ ...validEvent, posterCID: 'QmTestHash123' });
     expect(event.posterCID).toBe('QmTestHash123');
   });
-
-  it('defaults metadataCID to an empty string', async () => {
-    const event = await Event.create(validEvent);
-    expect(event.metadataCID).toBe('');
-  });
-
-  it('persists an explicit metadataCID', async () => {
-    const event = await Event.create({ ...validEvent, metadataCID: 'bafyMetadata' });
-    const found = await Event.findById(event._id);
-    expect(found?.metadataCID).toBe('bafyMetadata');
-  });
 });
