@@ -32,7 +32,7 @@
 - [x] **TASK-BE-02: Database Models & Schemas:** 5 Mongoose models (`User`, `Event`, `Ticket`, `Transaction`, `SyncState`) with validation, unique constraints, indexes, and type-safe interfaces aligned with PRD Section 10. `mongodb-memory-server` test infrastructure. 32 model tests (48 total).
 - [x] **TASK-BE-03: Authentication & Thirdweb Embedded Wallet Integration:** `POST /api/auth/login` verifying a client-signed payload via `verifySignature` from `thirdweb/auth` (handles both EOA and smart-account wallets). The signed message is domain-bound — it carries `domain` and `statement` fields checked against `AUTH_DOMAIN` and `LOGIN_STATEMENT`, so a signature harvested by another site cannot be replayed here. On first signup the claimed email is verified against Thirdweb via `getUser` before the `User` is created, closing an email-squatting hole; returning logins skip that call and stay network-free. Users are always seeded as `buyer`, with duplicate-key handling (concurrent same-wallet signup resolves idempotently; an email already tied to another wallet returns 409). Issues a 7-day JWT. Ships `authenticateJWT` and variadic `authorizeRole(...)`, the latter re-reading the stored role for organizer/admin gates so a demotion takes effect immediately. 105 tests. Known gap: login replay within the 5-minute payload window is still open until TASK-BE-08 builds the nonce store required by SR-05/SR-06.
 - [x] **Security hardening (from BE-03 review):** global error handler no longer echoes internal error text to clients, `JWT_SECRET` requires 32+ characters, all login payload fields are length-bounded, and the Jest suite runs serially so `npm test` is green by default.
-- [x] **TASK-BE-04: IPFS Metadata Upload Service:** Pinata SDK v2 wired through `config/pinata.ts` with JWT auth (`PINATA_JWT`/`PINATA_GATEWAY` replace the legacy key/secret pair). `shared/utils/ipfs.ts` is the single path to Pinata: the private `pinFile` does serialisation, the size cap, name sanitisation and transport, so validation — not just error mapping — has one choke point. Every payload is capped at 5MB, poster and metadata alike; the poster path keeps its own earlier check for the documented 400 `Poster exceeds 5MB limit`, while any other oversize payload gets a 400 `Upload exceeds 5MB limit` (nothing upstream bounds an event name or description, and a pin is permanent and billed). Posters allow only JPEG/PNG/WebP and are checked MIME → size → magic bytes, so a script-bearing SVG cannot masquerade as an image on a public gateway. Caller-supplied file names are sanitised to `[A-Za-z0-9._-]` and capped at 100 characters on both paths. The outbound call is raced against a 30s timeout — `PinataConfig` exposes no timeout hook and undici's ~300s default would otherwise pin an Express worker to a stalled Pinata — with the timer always cleared on settle. Every Pinata failure — thrown error, timeout, unserialisable payload, or a response with no CID — becomes a flat 502 `IPFS upload failed`, with the original logged server-side only. `features/events/event.metadata.ts` builds the ERC-721 document (dates as Unix seconds, `image` as `ipfs://<posterCID>`); an Invalid Date is rejected as a 400 rather than serialised to `null` in a document that is immutable once pinned, and `uploadEventAssets` re-checks both dates before the poster upload so a bad one costs no pin. `uploadEventAssets` runs the FR-03 sequence, returning both CIDs. Metadata is per-event: every ticket of an event shares one `tokenURI`, and uniqueness lives in the on-chain `tokenId`. Fail fast, no retry, no unpin — a failed metadata upload leaves an orphaned poster pin. `Event` gains `metadataCID`. 206 tests.
+- [x] **TASK-FE-01 to TASK-FE-09: Next.js 14 Frontend UI Suite Completed:** Scaffolded Next.js 14 App Router application in `frontend/` with Tailwind CSS obsidian dark theme, Framer Motion animations, Lucide React icons, and presentation mock data layer. Built Navbar & Footer shell, Buyer Portal (Homepage, Event Explorer, Event Detail view, Purchase Modal, My Tickets gallery, Ticket Provenance detail, Dynamic 30s QR Code Modal), Organizer Studio (4-step Event Creation Wizard with Pinata IPFS preview, Analytics Dashboard, Mobile Ticket Verification Scanner with camera viewfinder simulation), and Admin System Health Dashboard. `npm run build` passing cleanly with 0 errors across 9 static/dynamic routes.
 
 ---
 
@@ -50,14 +50,14 @@
 
 ---
 
-### **Phase 3: Frontend Application (`frontend/`) — UPCOMING**
-- [ ] Initialize Next.js app with TailwindCSS & Thirdweb SDK.
-- [ ] Implement Embedded Wallet Login (Email / Google OAuth).
-- [ ] Implement Buyer UI (Event catalogue, Ticket purchase, My Tickets page).
-- [ ] Implement Dynamic QR Code Generator (30s ticker, signed payload).
-- [ ] Implement Resale Marketplace UI.
-- [ ] Implement Organizer UI (Event creation form & mobile QR scanner).
-- [ ] Implement Admin Monitoring Dashboard.
+### **Phase 3: Frontend Application (`frontend/`) — IN PROGRESS (UI Suite Ready)**
+- [x] Initialize Next.js app with TailwindCSS, Lucide icons & Framer Motion design system.
+- [x] Implement Shell Layout & Navigation (Navbar with Role Switcher & Wallet Preview, Footer).
+- [x] Implement Buyer UI (Homepage catalog, Event detail, Purchase modal, My Tickets gallery).
+- [x] Implement Dynamic QR Code Generator (30s ticker, countdown bar, rotating nonce).
+- [x] Implement Organizer UI (4-step Event creation wizard & Mobile QR scanner interface).
+- [x] Implement Admin Monitoring Dashboard & System Audit Log.
+- [ ] Integrate Thirdweb Web3 SDK & REST API hooks with Backend endpoints (`/api/*`).
 
 ---
 

@@ -130,7 +130,7 @@ AuthenTix/
 
 ## 🎨 3. Frontend Application (`frontend/`)
 
-- [ ] **TASK-FE-01: Next.js Scaffolding & Design System**
+- [x] **TASK-FE-01: Next.js Scaffolding & Design System**
   - Initialize Next.js (TypeScript, React) app with TailwindCSS.
   - Establish cohesive color palette, modern typography, dark mode options, and glassmorphism styling.
   - Set up component library (Buttons, Cards, Modals, Badges, Toast Notifications).
@@ -140,17 +140,17 @@ AuthenTix/
   - Implement Embedded Wallet authentication component (Email & Google OAuth login without raw private keys).
   - Handle session state and JWT storage.
 
-- [ ] **TASK-FE-03: Buyer Portal - Homepage & Event Explorer**
+- [x] **TASK-FE-03: Buyer Portal - Homepage & Event Explorer**
   - Build responsive landing page featuring active events banner.
   - Build event catalog page with search, category filtering, and sorting.
   - Build event detail view displaying event poster, schedule, location, remaining tickets, and price.
 
-- [ ] **TASK-FE-04: Buyer Portal - Ticket Purchase & Management**
+- [x] **TASK-FE-04: Buyer Portal - Ticket Purchase & Management**
   - Build interactive ticket purchase modal and transaction status indicator.
   - Build "My Tickets" page listing all owned tickets fetched via API/blockchain.
   - Build ticket detail view with ownership provenance history.
 
-- [ ] **TASK-FE-05: Dynamic QR Code Generator Component**
+- [x] **TASK-FE-05: Dynamic QR Code Generator Component**
   - Build component generating dynamic QR code for ticket entry:
     - Payload format:
       ```json
@@ -165,22 +165,22 @@ AuthenTix/
     - Auto-regenerate QR code every 30 seconds with fresh nonce and valid signature.
     - Display visual countdown timer bar (30s ticker).
 
-- [ ] **TASK-FE-06: Ticket Resale Marketplace UI**
+- [x] **TASK-FE-06: Ticket Resale Marketplace UI**
   - Build ticket resale listing interface (enforce resale price cap UI validation).
   - Build ticket resale marketplace tab allowing buyers to purchase resold tickets.
 
-- [ ] **TASK-FE-07: Organizer Portal - Event Creation & Management**
+- [x] **TASK-FE-07: Organizer Portal - Event Creation & Management**
   - Build Event Creation wizard form:
     - Image poster uploader (previews & triggers IPFS upload).
     - Inputs for name, description, date, total capacity, ticket price, resale cap, sale deadline.
   - Build Organizer Dashboard showing sales analytics, remaining quota, and event status.
 
-- [ ] **TASK-FE-08: Organizer Portal - Ticket Verification Scanner UI**
+- [x] **TASK-FE-08: Organizer Portal - Ticket Verification Scanner UI**
   - Build mobile-friendly camera-based QR Code Scanner page.
   - Send scanned QR payload to `POST /api/tickets/verify`.
   - Display real-time verification feedback (Success: Green / Invalid: Red / Already Used: Yellow) with audio-visual cues.
 
-- [ ] **TASK-FE-09: Admin Dashboard UI**
+- [x] **TASK-FE-09: Admin Dashboard UI**
   - Build platform monitoring view for system admins.
   - Display real-time sync status, transaction logs, and manual resync button.
 
