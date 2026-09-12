@@ -2,7 +2,10 @@ import mongoose from 'mongoose';
 import { setupTestDB, teardownTestDB, clearCollections } from './__tests__/setup';
 import { User } from './user.model';
 
-beforeAll(async () => { await setupTestDB(); }, 30_000);
+beforeAll(async () => {
+  await setupTestDB();
+  await User.init();
+}, 30_000);
 afterAll(async () => { await teardownTestDB(); });
 afterEach(async () => { await clearCollections(); });
 
