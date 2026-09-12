@@ -27,3 +27,8 @@ export async function clearCollections(): Promise<void> {
     await collections[key].deleteMany({});
   }
 }
+
+export const setupTestDb = setupTestDB;
+export const teardownTestDb = teardownTestDB;
+export const clearTestDb = clearCollections;
+
