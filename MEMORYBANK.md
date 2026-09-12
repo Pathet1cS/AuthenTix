@@ -9,8 +9,8 @@
 ## 🎯 Current Status / Active Task
 
 - **Focus:** Phase 2 - Backend API (`backend/`) — **IN PROGRESS**
-- **Status:** TASK-BE-01 (Server Setup), TASK-BE-02 (Database Models), TASK-BE-03 (Authentication), and TASK-BE-04 (IPFS Metadata Upload) completed. 206 backend tests passing.
-- **Next Focus:** TASK-BE-05 (Event Management API).
+- **Status:** TASK-BE-01 (Server Setup), TASK-BE-02 (Database Models), TASK-BE-03 (Authentication), TASK-BE-04 (IPFS Metadata Upload), and TASK-BE-05 (Event Management API) completed. 232 backend tests passing.
+- **Next Focus:** TASK-BE-06 (Ticket Purchase & Relayer Minting Service).
 
 ---
 
@@ -43,7 +43,7 @@
 - [x] Implement database models (`User`, `Event`, `Ticket`, `Transaction`, `SyncState`).
 - [x] Implement Thirdweb Embedded Wallet authentication & JWT middleware.
 - [x] Implement IPFS / Pinata metadata upload service.
-- [ ] Implement Event Management APIs (`POST /api/events`, `GET /api/events`).
+- [x] Implement Event Management APIs (`POST /api/events`, `GET /api/events`, `GET /api/events/:id`).
 - [ ] Implement Ticket Purchase & Relayer Minting service with retry logic.
 - [ ] Implement Dynamic 30s QR Verification Engine (`POST /api/tickets/verify`).
 - [ ] Implement Blockchain Event Listener & catch-up block sync engine.
