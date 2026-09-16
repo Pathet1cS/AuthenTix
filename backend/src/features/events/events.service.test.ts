@@ -1,12 +1,22 @@
 import mongoose from 'mongoose';
+import { ethers } from 'ethers';
 import { setupTestDb, teardownTestDb, clearTestDb } from '@/shared/models/__tests__/setup';
 import { Event } from '@/shared/models/event.model';
 import { UploadFile } from '@/shared/utils/ipfs';
+import { blockchainService } from '@/shared/services/blockchain.service';
 import {
   createEventService,
   getEventsService,
   getEventByIdService,
 } from './events.service';
+
+jest.mock('@/shared/services/blockchain.service', () => ({
+  blockchainService: {
+    registerEventOnChain: jest.fn().mockResolvedValue({ txHash: '0xmockCreateEventTx' }),
+    mintTicketOnChain: jest.fn().mockResolvedValue({ tokenId: '1', txHash: '0xmockMintTx', blockNumber: 1 }),
+  },
+  withRetry: jest.fn().mockImplementation((fn) => fn()),
+}));
 
 jest.mock('@/shared/utils/ipfs', () => ({
   uploadImageToIpfs: jest.fn().mockResolvedValue('QmMockImageCID'),
@@ -51,10 +61,21 @@ describe('events.service', () => {
       expect(event.status).toBe('active');
       expect(event.posterCID).toBe('QmExistingPosterCID');
       expect(event.metadataCID).toBe('QmMockMetadataCID');
+      expect(event.onChainEventId).toBe(1);
+      expect(event.onChainTxHash).toBe('0xmockCreateEventTx');
+
+      expect(blockchainService.registerEventOnChain).toHaveBeenCalledWith({
+        onChainEventId: 1,
+        maxResalePrice: ethers.parseEther('0.2'),
+        saleDeadline: Math.floor(eventData.saleDeadline.getTime() / 1000),
+        totalCapacity: 1000,
+      });
 
       const saved = await Event.findById(event._id);
       expect(saved).not.toBeNull();
       expect(saved?.organizerId.toString()).toBe(organizerId);
+      expect(saved?.onChainEventId).toBe(1);
+      expect(saved?.onChainTxHash).toBe('0xmockCreateEventTx');
     });
 
     it('creates an event with posterFile supplied and pins both image and metadata to IPFS', async () => {
@@ -84,10 +105,34 @@ describe('events.service', () => {
       expect(event.status).toBe('active');
       expect(event.posterCID).toBe('QmMockImageCID');
       expect(event.metadataCID).toBe('QmMockMetadataCID');
+      expect(event.onChainEventId).toBe(1);
+      expect(event.onChainTxHash).toBe('0xmockCreateEventTx');
 
       const saved = await Event.findById(event._id);
       expect(saved).not.toBeNull();
       expect(saved?.posterCID).toBe('QmMockImageCID');
+      expect(saved?.onChainEventId).toBe(1);
+      expect(saved?.onChainTxHash).toBe('0xmockCreateEventTx');
+    });
+
+    it('increments onChainEventId sequentially for subsequent events', async () => {
+      const organizerId = new mongoose.Types.ObjectId().toString();
+      const baseData = {
+        name: 'Event 1',
+        description: 'First event',
+        eventDate: new Date(Date.now() + 86400000),
+        saleDeadline: new Date(Date.now() + 43200000),
+        ticketPrice: 0.1,
+        maxResalePrice: 0.2,
+        totalCapacity: 100,
+        posterCID: 'QmPoster1',
+      };
+
+      const event1 = await createEventService({ organizerId, ...baseData });
+      const event2 = await createEventService({ organizerId, ...baseData, name: 'Event 2' });
+
+      expect(event1.onChainEventId).toBe(1);
+      expect(event2.onChainEventId).toBe(2);
     });
 
     it('throws 400 error when neither posterFile nor posterCID is provided', async () => {

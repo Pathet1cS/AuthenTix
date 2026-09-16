@@ -1,8 +1,11 @@
 import mongoose, { FilterQuery } from 'mongoose';
+import { ethers } from 'ethers';
 import { Event, IEvent } from '@/shared/models/event.model';
 import { UploadFile, uploadJsonToIpfs } from '@/shared/utils/ipfs';
 import { buildEventMetadata, uploadEventAssets } from './event.metadata';
 import { createError } from '@/shared/utils/appError';
+import { getNextSequence } from '@/shared/models/counter.model';
+import { blockchainService, withRetry } from '@/shared/services/blockchain.service';
 
 export interface CreateEventServiceParams {
   organizerId: string;
@@ -49,6 +52,19 @@ export async function createEventService(params: CreateEventServiceParams): Prom
     throw createError('Either poster file or posterCID must be provided', 400);
   }
 
+  const onChainEventId = await getNextSequence('onChainEventId');
+  const maxResalePriceInWei = ethers.parseEther(params.maxResalePrice.toString());
+  const saleDeadlineTimestamp = Math.floor(new Date(params.saleDeadline).getTime() / 1000);
+
+  const { txHash: onChainTxHash } = await withRetry(() =>
+    blockchainService.registerEventOnChain({
+      onChainEventId,
+      maxResalePrice: maxResalePriceInWei,
+      saleDeadline: saleDeadlineTimestamp,
+      totalCapacity: params.totalCapacity,
+    }),
+  );
+
   const newEvent = await Event.create({
     organizerId: new mongoose.Types.ObjectId(params.organizerId),
     name: params.name,
@@ -61,6 +77,8 @@ export async function createEventService(params: CreateEventServiceParams): Prom
     remainingQuota: params.totalCapacity,
     posterCID,
     metadataCID,
+    onChainEventId,
+    onChainTxHash,
     status: 'active',
   });
 
