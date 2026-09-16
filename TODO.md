@@ -89,7 +89,7 @@ AuthenTix/
   - Implement validated poster upload (5MB cap, JPEG/PNG/WebP allowlist, magic-byte check).
   - Implement ERC-721 metadata JSON builder and upload; store `metadataCID` on the event.
 
-- [ ] **TASK-BE-05: Event Management API**
+- [x] **TASK-BE-05: Event Management API**
   - `POST /api/events`: Create new event, upload metadata to IPFS, and store in MongoDB.
   - `GET /api/events`: List active events with filtering, pagination, and search.
   - `GET /api/events/:id`: Retrieve single event details.
