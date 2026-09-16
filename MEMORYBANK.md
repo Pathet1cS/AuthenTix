@@ -9,8 +9,8 @@
 ## 🎯 Current Status / Active Task
 
 - **Focus:** Phase 2 - Backend API (`backend/`) — **IN PROGRESS**
-- **Status:** TASK-BE-01 through TASK-BE-06 completed (Server Setup, Database Models, Authentication, IPFS Metadata Upload, Event Management API, Ticket Purchase & Relayer Minting Service). 264 backend tests passing across 30 suites.
-- **Next Focus:** TASK-BE-07 (Ticket Resale API) and TASK-BE-08 (Dynamic QR Verification).
+- **Status:** TASK-BE-01 through TASK-BE-07 completed (Server Setup, Database Models, Authentication, IPFS Metadata Upload, Event Management API, Ticket Purchase & Relayer Minting, Ticket Resale API & User Ticket Lifecycle). 303 backend tests passing across 31 suites.
+- **Next Focus:** TASK-BE-08 (Dynamic QR Verification).
 
 ---
 
@@ -34,6 +34,7 @@
 - [x] **Security hardening (from BE-03 review):** global error handler no longer echoes internal error text to clients, `JWT_SECRET` requires 32+ characters, all login payload fields are length-bounded, and the Jest suite runs serially so `npm test` is green by default.
 - [x] **TASK-FE-01 to TASK-FE-09: Next.js 14 Frontend UI Suite Completed:** Scaffolded Next.js 14 App Router application in `frontend/` with Tailwind CSS obsidian dark theme, Framer Motion animations, Lucide React icons, and presentation mock data layer. Built Navbar & Footer shell, Buyer Portal (Homepage, Event Explorer, Event Detail view, Purchase Modal, My Tickets gallery, Ticket Provenance detail, Dynamic 30s QR Code Modal), Organizer Studio (4-step Event Creation Wizard with Pinata IPFS preview, Analytics Dashboard, Mobile Ticket Verification Scanner with camera viewfinder simulation), and Admin System Health Dashboard. `npm run build` passing cleanly with 0 errors across 9 static/dynamic routes.
 - [x] **TASK-BE-06: Ticket Purchase & Blockchain Relayer Service:** Implemented `POST /api/tickets/purchase` endpoint and relayer minting pipeline. Includes atomic quota reservation with optimistic locking (`findOneAndUpdate` on `remainingQuota > 0`), auto-incrementing sequential ticket IDs (`Counter` model), ticket metadata generation & Pinata IPFS upload, relayer transaction execution (`mintTicket`) via Ethers.js v6 on Optimism Sepolia, up to 3 automatic mint retries with exponential backoff on transient RPC errors, permanent failure handling flagging `isPendingMint: true` / `PENDING_MINT` transaction log with admin alerts. 267 backend tests passing.
+- [x] **TASK-BE-07: Ticket Resale API & User Ticket Lifecycle:** Implemented 5 resale and ticket management endpoints: `GET /api/tickets/my` (catalog with `all|active|resale|used` filters), `POST /api/tickets/resell` (anti-scalping price cap verification $\le$ `maxResalePrice`, deadline check, on-chain receipt verification for `ListingCreated`, atomic listing update), `DELETE /api/tickets/resell/:tokenId` (on-chain `ListingCancelled` verification, listing rollback), `POST /api/tickets/resell/purchase` (on-chain `ListingSold` verification, buyer ownership transfer, `resell` transaction audit log), and `GET /api/tickets/resale` (public marketplace catalog with price sorting and event filter). 303 backend tests passing across 31 suites.
 
 ---
 
@@ -46,6 +47,7 @@
 - [x] Implement IPFS / Pinata metadata upload service.
 - [x] Implement Event Management APIs (`POST /api/events`, `GET /api/events`, `GET /api/events/:id`).
 - [x] Implement Ticket Purchase & Relayer Minting service with retry logic.
+- [x] Implement Ticket Resale API & Marketplace Lifecycle.
 - [ ] Implement Dynamic 30s QR Verification Engine (`POST /api/tickets/verify`).
 - [ ] Implement Blockchain Event Listener & catch-up block sync engine.
 
