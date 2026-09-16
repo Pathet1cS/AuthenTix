@@ -84,4 +84,21 @@ describe('Event model', () => {
     const found = await Event.findById(event._id);
     expect(found?.metadataCID).toBe('bafyMetadata');
   });
+
+  it('defaults onChainTxHash to empty string and allows optional onChainEventId', async () => {
+    const event = await Event.create(validEvent);
+    expect(event.onChainTxHash).toBe('');
+    expect(event.onChainEventId).toBeUndefined();
+  });
+
+  it('stores onChainEventId and onChainTxHash when provided', async () => {
+    const event = await Event.create({
+      ...validEvent,
+      onChainEventId: 42,
+      onChainTxHash: '0xabc123',
+    });
+    const found = await Event.findById(event._id);
+    expect(found?.onChainEventId).toBe(42);
+    expect(found?.onChainTxHash).toBe('0xabc123');
+  });
 });

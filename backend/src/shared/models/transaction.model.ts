@@ -8,6 +8,7 @@ export interface ITransaction extends Document {
   toWallet: string;
   price: number;
   timestamp: Date;
+  status: 'SUCCESS' | 'PENDING_MINT' | 'FAILED';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -46,6 +47,12 @@ const transactionSchema = new Schema<ITransaction>(
     },
     timestamp: {
       type: Date,
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ['SUCCESS', 'PENDING_MINT', 'FAILED'],
+      default: 'SUCCESS',
       required: true,
     },
   },
