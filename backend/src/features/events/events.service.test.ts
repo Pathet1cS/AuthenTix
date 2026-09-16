@@ -154,6 +154,33 @@ describe('events.service', () => {
         statusCode: 400,
       });
     });
+
+    it('creates draft event first and leaves it as draft if on-chain registration fails', async () => {
+      const organizerId = new mongoose.Types.ObjectId().toString();
+      const baseData = {
+        name: 'Failing Blockchain Event',
+        description: 'Testing blockchain failure handling',
+        eventDate: new Date(Date.now() + 86400000),
+        saleDeadline: new Date(Date.now() + 43200000),
+        ticketPrice: 0.1,
+        maxResalePrice: 0.2,
+        totalCapacity: 100,
+        posterCID: 'QmPosterFail',
+      };
+
+      (blockchainService.registerEventOnChain as jest.Mock).mockRejectedValueOnce(
+        new Error('RPC Provider Timeout'),
+      );
+
+      await expect(
+        createEventService({ organizerId, ...baseData }),
+      ).rejects.toThrow('RPC Provider Timeout');
+
+      const saved = await Event.findOne({ name: 'Failing Blockchain Event' });
+      expect(saved).not.toBeNull();
+      expect(saved?.status).toBe('draft');
+      expect(saved?.onChainEventId).toBeUndefined();
+    });
   });
 
   describe('getEventsService', () => {

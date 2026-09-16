@@ -101,4 +101,29 @@ describe('Event model', () => {
     expect(found?.onChainEventId).toBe(42);
     expect(found?.onChainTxHash).toBe('0xabc123');
   });
+
+  it('enforces uniqueness on onChainEventId', async () => {
+    await Event.create({
+      ...validEvent,
+      onChainEventId: 100,
+      onChainTxHash: '0x111',
+    });
+
+    await expect(
+      Event.create({
+        ...validEvent,
+        onChainEventId: 100,
+        onChainTxHash: '0x222',
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('allows multiple events with undefined onChainEventId due to sparse index', async () => {
+    const event1 = await Event.create(validEvent);
+    const event2 = await Event.create({ ...validEvent, name: 'Second Draft Event' });
+
+    expect(event1.onChainEventId).toBeUndefined();
+    expect(event2.onChainEventId).toBeUndefined();
+  });
 });
+

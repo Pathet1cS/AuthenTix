@@ -72,7 +72,7 @@ const eventSchema = new Schema<IEvent>(
     onChainEventId: {
       type: Number,
       sparse: true,
-      index: true,
+      unique: true,
     },
     onChainTxHash: {
       type: String,
