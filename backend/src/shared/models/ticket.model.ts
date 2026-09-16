@@ -10,6 +10,9 @@ export interface ITicket extends Document {
   blockNumber: number;
   isUsed: boolean;
   usedAt: Date | null;
+  isListed: boolean;
+  resalePrice: number | null;
+  listingTxHash: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -56,10 +59,24 @@ const ticketSchema = new Schema<ITicket>(
       type: Date,
       default: null,
     },
+    isListed: {
+      type: Boolean,
+      default: false,
+    },
+    resalePrice: {
+      type: Number,
+      default: null,
+    },
+    listingTxHash: {
+      type: String,
+      default: '',
+    },
   },
   { timestamps: true },
 );
 
 ticketSchema.index({ eventId: 1, ownerWallet: 1 });
+ticketSchema.index({ isListed: 1, eventId: 1 });
+ticketSchema.index({ ownerWallet: 1, isListed: 1, isUsed: 1 });
 
 export const Ticket = mongoose.model<ITicket>('Ticket', ticketSchema);
