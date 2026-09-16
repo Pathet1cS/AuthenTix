@@ -154,7 +154,7 @@ export class BlockchainService {
             const seller = (parsed.args.seller as string).toLowerCase();
             const price = BigInt(parsed.args.price);
 
-            if (tokenIdStr === params.tokenId && seller === params.sellerWallet.toLowerCase()) {
+            if (tokenIdStr === params.tokenId && seller === params.sellerWallet.trim().toLowerCase()) {
               if (price !== params.expectedPriceWei) {
                 throw createError('On-chain listing price does not match specified price', 400);
               }
@@ -195,9 +195,9 @@ export class BlockchainService {
           });
           if (parsed && parsed.name === 'ListingCancelled') {
             const tokenIdStr = parsed.args.tokenId.toString();
-            const seller = (parsed.args.seller as string).toLowerCase();
+            const seller = (parsed.args.seller as string).trim().toLowerCase();
 
-            if (tokenIdStr === params.tokenId && seller === params.sellerWallet.toLowerCase()) {
+            if (tokenIdStr === params.tokenId && seller === params.sellerWallet.trim().toLowerCase()) {
               found = true;
               break;
             }
@@ -237,10 +237,10 @@ export class BlockchainService {
           });
           if (parsed && parsed.name === 'ListingSold') {
             const tokenIdStr = parsed.args.tokenId.toString();
-            const buyer = (parsed.args.buyer as string).toLowerCase();
+            const buyer = (parsed.args.buyer as string).trim().toLowerCase();
 
-            if (tokenIdStr === params.tokenId && buyer === params.buyerWallet.toLowerCase()) {
-              sellerWallet = (parsed.args.seller as string).toLowerCase();
+            if (tokenIdStr === params.tokenId && buyer === params.buyerWallet.trim().toLowerCase()) {
+              sellerWallet = (parsed.args.seller as string).trim().toLowerCase();
               priceWei = BigInt(parsed.args.price);
               break;
             }
