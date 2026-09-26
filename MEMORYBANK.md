@@ -2,15 +2,15 @@
 
 > **Application:** Web3 Decentralized E-Ticketing Platform (AuthenTix)  
 > **Current Phase:** Phase 2 — Backend API & Event Listener (`backend/`)  
-> **Last Updated:** 2026-08-05
+> **Last Updated:** 2026-09-16
 
 ---
 
 ## 🎯 Current Status / Active Task
 
 - **Focus:** Phase 2 - Backend API (`backend/`) — **IN PROGRESS**
-- **Status:** TASK-BE-01 (Server Setup), TASK-BE-02 (Database Models), TASK-BE-03 (Authentication), TASK-BE-04 (IPFS Metadata Upload), and TASK-BE-05 (Event Management API) completed. 232 backend tests passing.
-- **Next Focus:** TASK-BE-06 (Ticket Purchase & Relayer Minting Service).
+- **Status:** TASK-BE-01 through TASK-BE-06 completed (Server Setup, Database Models, Authentication, IPFS Metadata Upload, Event Management API, Ticket Purchase & Relayer Minting Service). 264 backend tests passing across 30 suites.
+- **Next Focus:** TASK-BE-07 (Ticket Resale API) and TASK-BE-08 (Dynamic QR Verification).
 
 ---
 
@@ -33,6 +33,7 @@
 - [x] **TASK-BE-03: Authentication & Thirdweb Embedded Wallet Integration:** `POST /api/auth/login` verifying a client-signed payload via `verifySignature` from `thirdweb/auth` (handles both EOA and smart-account wallets). The signed message is domain-bound — it carries `domain` and `statement` fields checked against `AUTH_DOMAIN` and `LOGIN_STATEMENT`, so a signature harvested by another site cannot be replayed here. On first signup the claimed email is verified against Thirdweb via `getUser` before the `User` is created, closing an email-squatting hole; returning logins skip that call and stay network-free. Users are always seeded as `buyer`, with duplicate-key handling (concurrent same-wallet signup resolves idempotently; an email already tied to another wallet returns 409). Issues a 7-day JWT. Ships `authenticateJWT` and variadic `authorizeRole(...)`, the latter re-reading the stored role for organizer/admin gates so a demotion takes effect immediately. 105 tests. Known gap: login replay within the 5-minute payload window is still open until TASK-BE-08 builds the nonce store required by SR-05/SR-06.
 - [x] **Security hardening (from BE-03 review):** global error handler no longer echoes internal error text to clients, `JWT_SECRET` requires 32+ characters, all login payload fields are length-bounded, and the Jest suite runs serially so `npm test` is green by default.
 - [x] **TASK-FE-01 to TASK-FE-09: Next.js 14 Frontend UI Suite Completed:** Scaffolded Next.js 14 App Router application in `frontend/` with Tailwind CSS obsidian dark theme, Framer Motion animations, Lucide React icons, and presentation mock data layer. Built Navbar & Footer shell, Buyer Portal (Homepage, Event Explorer, Event Detail view, Purchase Modal, My Tickets gallery, Ticket Provenance detail, Dynamic 30s QR Code Modal), Organizer Studio (4-step Event Creation Wizard with Pinata IPFS preview, Analytics Dashboard, Mobile Ticket Verification Scanner with camera viewfinder simulation), and Admin System Health Dashboard. `npm run build` passing cleanly with 0 errors across 9 static/dynamic routes.
+- [x] **TASK-BE-06: Ticket Purchase & Blockchain Relayer Service:** Implemented `POST /api/tickets/purchase` endpoint and relayer minting pipeline. Includes atomic quota reservation with optimistic locking (`findOneAndUpdate` on `remainingQuota > 0`), auto-incrementing sequential ticket IDs (`Counter` model), ticket metadata generation & Pinata IPFS upload, relayer transaction execution (`mintTicket`) via Ethers.js v6 on Optimism Sepolia, up to 3 automatic mint retries with exponential backoff on transient RPC errors, permanent failure handling flagging `isPendingMint: true` / `PENDING_MINT` transaction log with admin alerts. 267 backend tests passing.
 
 ---
 
@@ -44,7 +45,7 @@
 - [x] Implement Thirdweb Embedded Wallet authentication & JWT middleware.
 - [x] Implement IPFS / Pinata metadata upload service.
 - [x] Implement Event Management APIs (`POST /api/events`, `GET /api/events`, `GET /api/events/:id`).
-- [ ] Implement Ticket Purchase & Relayer Minting service with retry logic.
+- [x] Implement Ticket Purchase & Relayer Minting service with retry logic.
 - [ ] Implement Dynamic 30s QR Verification Engine (`POST /api/tickets/verify`).
 - [ ] Implement Blockchain Event Listener & catch-up block sync engine.
 

@@ -5,7 +5,18 @@ jest.mock('@/config/env', () => ({
     AUTH_DOMAIN: 'localhost:3000',
     PINATA_JWT: 'test-pinata-jwt',
     PINATA_GATEWAY: 'test.mypinata.cloud',
+    CONTRACT_ADDRESS: '0x1111111111111111111111111111111111111111',
+    RELAYER_PRIVATE_KEY: '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    RPC_URL: 'http://127.0.0.1:8545',
   },
+}));
+
+jest.mock('@/shared/services/blockchain.service', () => ({
+  blockchainService: {
+    registerEventOnChain: jest.fn().mockResolvedValue({ txHash: '0xmockCreateEventTx' }),
+    mintTicketOnChain: jest.fn().mockResolvedValue({ tokenId: '1', txHash: '0xmockMintTx', blockNumber: 1 }),
+  },
+  withRetry: jest.fn().mockImplementation((fn) => fn()),
 }));
 
 jest.mock('@/shared/utils/ipfs', () => ({

@@ -1,8 +1,11 @@
 import mongoose, { FilterQuery } from 'mongoose';
+import { ethers } from 'ethers';
 import { Event, IEvent } from '@/shared/models/event.model';
 import { UploadFile, uploadJsonToIpfs } from '@/shared/utils/ipfs';
 import { buildEventMetadata, uploadEventAssets } from './event.metadata';
 import { createError } from '@/shared/utils/appError';
+import { getNextSequence } from '@/shared/models/counter.model';
+import { blockchainService, withRetry } from '@/shared/services/blockchain.service';
 
 export interface CreateEventServiceParams {
   organizerId: string;
@@ -61,10 +64,34 @@ export async function createEventService(params: CreateEventServiceParams): Prom
     remainingQuota: params.totalCapacity,
     posterCID,
     metadataCID,
-    status: 'active',
+    status: 'draft',
   });
 
-  return newEvent;
+  try {
+    const onChainEventId = await getNextSequence('onChainEventId');
+    const maxResalePriceInWei = ethers.parseEther(params.maxResalePrice.toString());
+    const saleDeadlineTimestamp = Math.floor(new Date(params.saleDeadline).getTime() / 1000);
+
+    const { txHash: onChainTxHash } = await withRetry(() =>
+      blockchainService.registerEventOnChain({
+        onChainEventId,
+        maxResalePrice: maxResalePriceInWei,
+        saleDeadline: saleDeadlineTimestamp,
+        totalCapacity: params.totalCapacity,
+      }),
+    );
+
+    newEvent.status = 'active';
+    newEvent.onChainEventId = onChainEventId;
+    newEvent.onChainTxHash = onChainTxHash;
+    await newEvent.save();
+
+    return newEvent;
+  } catch (error) {
+    // If on-chain registration fails, the draft event remains draft,
+    // preventing an orphaned on-chain event without a Web2 record.
+    throw error;
+  }
 }
 
 export interface GetEventsServiceQuery {

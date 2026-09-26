@@ -27,6 +27,7 @@ describe('Transaction model', () => {
     expect(tx.tokenId).toBe('1');
     expect(tx.toWallet).toBe(validTx.toWallet.toLowerCase());
     expect(tx.price).toBe(50000);
+    expect(tx.status).toBe('SUCCESS');
     expect(tx.createdAt).toBeInstanceOf(Date);
   });
 
@@ -63,5 +64,22 @@ describe('Transaction model', () => {
       });
       expect(tx.type).toBe(type);
     }
+  });
+
+  it('accepts valid statuses', async () => {
+    for (const status of ['SUCCESS', 'PENDING_MINT', 'FAILED'] as const) {
+      const tx = await Transaction.create({
+        ...validTx,
+        txHash: `0xstatus_${status.toLowerCase()}`,
+        status,
+      });
+      expect(tx.status).toBe(status);
+    }
+  });
+
+  it('rejects invalid status', async () => {
+    await expect(
+      Transaction.create({ ...validTx, status: 'INVALID_STATUS' as any }),
+    ).rejects.toThrow();
   });
 });

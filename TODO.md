@@ -94,7 +94,7 @@ AuthenTix/
   - `GET /api/events`: List active events with filtering, pagination, and search.
   - `GET /api/events/:id`: Retrieve single event details.
 
-- [ ] **TASK-BE-06: Ticket Purchase & Blockchain Relayer Service**
+- [x] **TASK-BE-06: Ticket Purchase & Blockchain Relayer Service**
   - `POST /api/tickets/purchase`:
     1. Validate payment / order details.
     2. Backend relayer wallet invokes smart contract `mintTicket(buyerWallet, tokenURI)`.

@@ -12,6 +12,8 @@ export interface IEvent extends Document {
   remainingQuota: number;
   posterCID: string;
   metadataCID: string;
+  onChainEventId?: number;
+  onChainTxHash?: string;
   status: 'draft' | 'active' | 'soldout' | 'ended' | 'cancelled';
   createdAt: Date;
   updatedAt: Date;
@@ -64,6 +66,15 @@ const eventSchema = new Schema<IEvent>(
       default: '',
     },
     metadataCID: {
+      type: String,
+      default: '',
+    },
+    onChainEventId: {
+      type: Number,
+      sparse: true,
+      unique: true,
+    },
+    onChainTxHash: {
       type: String,
       default: '',
     },
