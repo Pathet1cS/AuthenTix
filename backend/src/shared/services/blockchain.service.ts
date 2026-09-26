@@ -6,6 +6,12 @@ export const EVENT_TICKET_NFT_ABI = [
   'function createEvent(uint256 eventId, uint256 maxResalePrice, uint256 saleDeadline, uint256 totalSupply) external',
   'function mintTicket(address buyer, uint256 eventId, string calldata metadataURI) external returns (uint256)',
   'event TicketMinted(uint256 indexed tokenId, uint256 indexed eventId, address indexed owner, string tokenURI)',
+  'event ListingCreated(uint256 indexed tokenId, address indexed seller, uint256 price)',
+  'event ListingCancelled(uint256 indexed tokenId, address indexed seller)',
+  'event ListingSold(uint256 indexed tokenId, address indexed seller, address indexed buyer, uint256 price)',
+  'event TicketTransferred(uint256 indexed tokenId, address indexed from, address indexed to)',
+  'function ownerOf(uint256 tokenId) external view returns (address)',
+  'function resaleListings(uint256 tokenId) external view returns (address seller, uint256 price, bool isActive)',
 ];
 
 export async function withRetry<T>(
@@ -56,6 +62,13 @@ export class BlockchainService {
       this._contract = new ethers.Contract(env.CONTRACT_ADDRESS, EVENT_TICKET_NFT_ABI, wallet);
     }
     return this._contract;
+  }
+
+  private get provider(): ethers.Provider {
+    const runner = this.contract.runner as any;
+    if (runner?.provider) return runner.provider;
+    if (runner && typeof runner.getTransactionReceipt === 'function') return runner;
+    return new ethers.JsonRpcProvider(env.RPC_URL);
   }
 
   async registerEventOnChain(params: RegisterEventParams): Promise<{ txHash: string }> {
@@ -113,6 +126,138 @@ export class BlockchainService {
     return {
       tokenId,
       txHash: tx.hash,
+      blockNumber: receipt.blockNumber,
+    };
+  }
+
+  async verifyListingCreatedOnChain(params: {
+    txHash: string;
+    tokenId: string;
+    sellerWallet: string;
+    expectedPriceWei: bigint;
+  }): Promise<{ blockNumber: number }> {
+    const receipt = await this.provider.getTransactionReceipt(params.txHash);
+    if (!receipt || receipt.status !== 1) {
+      throw createError('Transaction failed or was not mined on-chain', 502);
+    }
+
+    let found = false;
+    if (receipt.logs) {
+      for (const log of receipt.logs) {
+        try {
+          const parsed = this.contract.interface.parseLog({
+            topics: [...log.topics],
+            data: log.data,
+          });
+          if (parsed && parsed.name === 'ListingCreated') {
+            const tokenIdStr = parsed.args.tokenId.toString();
+            const seller = (parsed.args.seller as string).toLowerCase();
+            const price = BigInt(parsed.args.price);
+
+            if (tokenIdStr === params.tokenId && seller === params.sellerWallet.trim().toLowerCase()) {
+              if (price !== params.expectedPriceWei) {
+                throw createError('On-chain listing price does not match specified price', 400);
+              }
+              found = true;
+              break;
+            }
+          }
+        } catch (err: any) {
+          if (err.statusCode) throw err;
+        }
+      }
+    }
+
+    if (!found) {
+      throw createError('ListingCreated event not found or parameters do not match', 502);
+    }
+
+    return { blockNumber: receipt.blockNumber };
+  }
+
+  async verifyListingCancelledOnChain(params: {
+    txHash: string;
+    tokenId: string;
+    sellerWallet: string;
+  }): Promise<{ blockNumber: number }> {
+    const receipt = await this.provider.getTransactionReceipt(params.txHash);
+    if (!receipt || receipt.status !== 1) {
+      throw createError('Transaction failed or was not mined on-chain', 502);
+    }
+
+    let found = false;
+    if (receipt.logs) {
+      for (const log of receipt.logs) {
+        try {
+          const parsed = this.contract.interface.parseLog({
+            topics: [...log.topics],
+            data: log.data,
+          });
+          if (parsed && parsed.name === 'ListingCancelled') {
+            const tokenIdStr = parsed.args.tokenId.toString();
+            const seller = (parsed.args.seller as string).trim().toLowerCase();
+
+            if (tokenIdStr === params.tokenId && seller === params.sellerWallet.trim().toLowerCase()) {
+              found = true;
+              break;
+            }
+          }
+        } catch {
+          // Continue
+        }
+      }
+    }
+
+    if (!found) {
+      throw createError('ListingCancelled event not found or parameters do not match', 502);
+    }
+
+    return { blockNumber: receipt.blockNumber };
+  }
+
+  async verifyListingSoldOnChain(params: {
+    txHash: string;
+    tokenId: string;
+    buyerWallet: string;
+  }): Promise<{ sellerWallet: string; priceWei: bigint; blockNumber: number }> {
+    const receipt = await this.provider.getTransactionReceipt(params.txHash);
+    if (!receipt || receipt.status !== 1) {
+      throw createError('Transaction failed or was not mined on-chain', 502);
+    }
+
+    let sellerWallet: string | null = null;
+    let priceWei: bigint | null = null;
+
+    if (receipt.logs) {
+      for (const log of receipt.logs) {
+        try {
+          const parsed = this.contract.interface.parseLog({
+            topics: [...log.topics],
+            data: log.data,
+          });
+          if (parsed && parsed.name === 'ListingSold') {
+            const tokenIdStr = parsed.args.tokenId.toString();
+            const buyer = (parsed.args.buyer as string).trim().toLowerCase();
+
+            if (tokenIdStr === params.tokenId && buyer === params.buyerWallet.trim().toLowerCase()) {
+              sellerWallet = (parsed.args.seller as string).trim().toLowerCase();
+              priceWei = BigInt(parsed.args.price);
+              break;
+            }
+          }
+        } catch {
+          // Continue
+        }
+      }
+    }
+
+    if (!sellerWallet || priceWei === null) {
+      throw createError('ListingSold event not found or parameters do not match', 502);
+    }
+
+    return {
+      sellerWallet,
+      priceWei,
       blockNumber: receipt.blockNumber,
     };
   }

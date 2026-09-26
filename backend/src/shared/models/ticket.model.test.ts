@@ -57,4 +57,37 @@ describe('Ticket model', () => {
     const ticket = await Ticket.create(validTicket);
     expect(ticket.ownerWallet).toBe('0xabcd0000000000000000000000000000000000ff');
   });
+
+  it('should set default values for resale listing fields', async () => {
+    const ticket = await Ticket.create({
+      tokenId: '99',
+      eventId: new mongoose.Types.ObjectId(),
+      ownerWallet: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+      tokenURI: 'ipfs://QmTest',
+      mintTxHash: '0x123',
+      blockNumber: 100,
+    });
+
+    expect(ticket.isListed).toBe(false);
+    expect(ticket.resalePrice).toBeNull();
+    expect(ticket.listingTxHash).toBe('');
+  });
+
+  it('should allow setting resale listing fields', async () => {
+    const ticket = await Ticket.create({
+      tokenId: '100',
+      eventId: new mongoose.Types.ObjectId(),
+      ownerWallet: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+      tokenURI: 'ipfs://QmTest',
+      mintTxHash: '0x123',
+      blockNumber: 100,
+      isListed: true,
+      resalePrice: 0.06,
+      listingTxHash: '0xabc',
+    });
+
+    expect(ticket.isListed).toBe(true);
+    expect(ticket.resalePrice).toBe(0.06);
+    expect(ticket.listingTxHash).toBe('0xabc');
+  });
 });

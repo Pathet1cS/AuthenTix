@@ -101,8 +101,12 @@ AuthenTix/
     3. Handle failure recovery: retry minting up to 3 times; if still failing, mark transaction as `PENDING_MINT` and notify admin (FR-13 / failure rules).
     4. Return `tokenId` and `txHash`.
 
-- [ ] **TASK-BE-07: Ticket Resale API**
-  - `POST /api/tickets/resell`: Create resale listing endpoint and validate parameters.
+- [x] **TASK-BE-07: Ticket Resale API**
+  - `GET /api/tickets/my`: Authenticated user ticket catalog with status filtering (`all`, `active`, `resale`, `used`) and pagination.
+  - `POST /api/tickets/resell`: Create resale listing, validate anti-scalping price cap (`<= maxResalePrice`), check deadline, and verify on-chain `ListingCreated` event.
+  - `DELETE /api/tickets/resell/:tokenId`: Cancel resale listing and verify on-chain `ListingCancelled` event.
+  - `POST /api/tickets/resell/purchase`: Fulfill secondary purchase, transfer ownership, verify `ListingSold` event, and log `resell` transaction.
+  - `GET /api/tickets/resale`: Public secondary marketplace catalog with sorting and pagination.
 
 - [ ] **TASK-BE-08: Dynamic QR & Verification Engine**
   - Implement verification logic for `POST /api/tickets/verify`:

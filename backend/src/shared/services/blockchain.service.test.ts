@@ -184,5 +184,221 @@ describe('Blockchain Service & withRetry', () => {
       const defaultService = new BlockchainService();
       expect(defaultService).toBeInstanceOf(BlockchainService);
     });
+
+    describe('resale receipt verification methods', () => {
+      let mockProvider: any;
+
+      beforeEach(() => {
+        mockProvider = {
+          getTransactionReceipt: jest.fn(),
+        };
+        mockContract.runner = { provider: mockProvider };
+      });
+
+      describe('verifyListingCreatedOnChain', () => {
+        it('should successfully verify a valid ListingCreated transaction', async () => {
+          mockProvider.getTransactionReceipt.mockResolvedValue({
+            status: 1,
+            blockNumber: 54321,
+            logs: [{ topics: ['0xtopic'], data: '0xdata' }],
+          });
+
+          mockContract.interface.parseLog.mockReturnValue({
+            name: 'ListingCreated',
+            args: {
+              tokenId: BigInt(1),
+              seller: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+              price: ethers.parseEther('0.06'),
+            },
+          });
+
+          const result = await service.verifyListingCreatedOnChain({
+            txHash: '0xlistTx',
+            tokenId: '1',
+            sellerWallet: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+            expectedPriceWei: ethers.parseEther('0.06'),
+          });
+
+          expect(result.blockNumber).toBe(54321);
+          expect(mockProvider.getTransactionReceipt).toHaveBeenCalledWith('0xlistTx');
+        });
+
+        it('should throw 502 if transaction was not mined or reverted', async () => {
+          mockProvider.getTransactionReceipt.mockResolvedValue({ status: 0 });
+
+          await expect(
+            service.verifyListingCreatedOnChain({
+              txHash: '0xrevertedTx',
+              tokenId: '1',
+              sellerWallet: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+              expectedPriceWei: ethers.parseEther('0.06'),
+            }),
+          ).rejects.toThrow('Transaction failed or was not mined on-chain');
+        });
+
+        it('should throw 400 if listing price in log does not match expected price', async () => {
+          mockProvider.getTransactionReceipt.mockResolvedValue({
+            status: 1,
+            blockNumber: 54321,
+            logs: [{ topics: ['0xtopic'], data: '0xdata' }],
+          });
+
+          mockContract.interface.parseLog.mockReturnValue({
+            name: 'ListingCreated',
+            args: {
+              tokenId: BigInt(1),
+              seller: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+              price: ethers.parseEther('0.07'),
+            },
+          });
+
+          await expect(
+            service.verifyListingCreatedOnChain({
+              txHash: '0xlistTx',
+              tokenId: '1',
+              sellerWallet: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+              expectedPriceWei: ethers.parseEther('0.06'),
+            }),
+          ).rejects.toThrow('On-chain listing price does not match specified price');
+        });
+
+        it('should throw 502 if ListingCreated log not found for tokenId and seller', async () => {
+          mockProvider.getTransactionReceipt.mockResolvedValue({
+            status: 1,
+            blockNumber: 54321,
+            logs: [{ topics: ['0xtopic'], data: '0xdata' }],
+          });
+
+          mockContract.interface.parseLog.mockReturnValue(null);
+
+          await expect(
+            service.verifyListingCreatedOnChain({
+              txHash: '0xlistTx',
+              tokenId: '1',
+              sellerWallet: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+              expectedPriceWei: ethers.parseEther('0.06'),
+            }),
+          ).rejects.toThrow('ListingCreated event not found or parameters do not match');
+        });
+      });
+
+      describe('verifyListingCancelledOnChain', () => {
+        it('should successfully verify a valid ListingCancelled transaction', async () => {
+          mockProvider.getTransactionReceipt.mockResolvedValue({
+            status: 1,
+            blockNumber: 54322,
+            logs: [{ topics: ['0xtopic'], data: '0xdata' }],
+          });
+
+          mockContract.interface.parseLog.mockReturnValue({
+            name: 'ListingCancelled',
+            args: {
+              tokenId: BigInt(1),
+              seller: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+            },
+          });
+
+          const result = await service.verifyListingCancelledOnChain({
+            txHash: '0xcancelTx',
+            tokenId: '1',
+            sellerWallet: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+          });
+
+          expect(result.blockNumber).toBe(54322);
+        });
+
+        it('should throw 502 if ListingCancelled event not found or seller mismatch', async () => {
+          mockProvider.getTransactionReceipt.mockResolvedValue({
+            status: 1,
+            blockNumber: 54322,
+            logs: [{ topics: ['0xtopic'], data: '0xdata' }],
+          });
+
+          mockContract.interface.parseLog.mockReturnValue({
+            name: 'ListingCancelled',
+            args: {
+              tokenId: BigInt(1),
+              seller: '0xdifferentSeller',
+            },
+          });
+
+          await expect(
+            service.verifyListingCancelledOnChain({
+              txHash: '0xcancelTx',
+              tokenId: '1',
+              sellerWallet: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+            }),
+          ).rejects.toThrow('ListingCancelled event not found or parameters do not match');
+        });
+      });
+
+      describe('verifyListingSoldOnChain', () => {
+        it('should successfully verify a valid ListingSold & TicketTransferred transaction', async () => {
+          mockProvider.getTransactionReceipt.mockResolvedValue({
+            status: 1,
+            blockNumber: 54323,
+            logs: [
+              { topics: ['0xtopic1'], data: '0xdata1' },
+              { topics: ['0xtopic2'], data: '0xdata2' },
+            ],
+          });
+
+          mockContract.interface.parseLog
+            .mockReturnValueOnce({
+              name: 'ListingSold',
+              args: {
+                tokenId: BigInt(1),
+                seller: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+                buyer: '0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc',
+                price: ethers.parseEther('0.06'),
+              },
+            })
+            .mockReturnValueOnce({
+              name: 'TicketTransferred',
+              args: {
+                tokenId: BigInt(1),
+                from: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+                to: '0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc',
+              },
+            });
+
+          const result = await service.verifyListingSoldOnChain({
+            txHash: '0xbuyTx',
+            tokenId: '1',
+            buyerWallet: '0x3C44CDDDB6A900FA2B585DD299E03D12FA4293BC',
+          });
+
+          expect(result.blockNumber).toBe(54323);
+          expect(result.sellerWallet).toBe('0x70997970c51812dc3a010c7d01b50e0d17dc79c8');
+          expect(result.priceWei).toBe(ethers.parseEther('0.06'));
+        });
+
+        it('should throw 502 if buyer does not match caller in ListingSold', async () => {
+          mockProvider.getTransactionReceipt.mockResolvedValue({
+            status: 1,
+            blockNumber: 54323,
+            logs: [{ topics: ['0xtopic1'], data: '0xdata1' }],
+          });
+
+          mockContract.interface.parseLog.mockReturnValue({
+            name: 'ListingSold',
+            args: {
+              tokenId: BigInt(1),
+              seller: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+              buyer: '0xdifferentBuyer',
+              price: ethers.parseEther('0.06'),
+            },
+          });
+
+          await expect(
+            service.verifyListingSoldOnChain({
+              txHash: '0xbuyTx',
+              tokenId: '1',
+              buyerWallet: '0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc',
+            }),
+          ).rejects.toThrow('ListingSold event not found or parameters do not match');
+        });
+      });
+    });
   });
 });
