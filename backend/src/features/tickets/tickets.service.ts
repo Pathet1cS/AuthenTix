@@ -124,3 +124,268 @@ export async function purchaseTicketService(
     );
   }
 }
+
+export interface GetMyTicketsQuery {
+  status?: string;
+  page?: number;
+  limit?: number;
+}
+
+export async function getMyTicketsService(
+  walletAddress: string,
+  query: GetMyTicketsQuery,
+) {
+  const normalizedWallet = walletAddress.trim().toLowerCase();
+  const filter: any = { ownerWallet: normalizedWallet };
+
+  if (query.status === 'active') {
+    filter.isUsed = false;
+    filter.isListed = false;
+  } else if (query.status === 'resale') {
+    filter.isListed = true;
+  } else if (query.status === 'used') {
+    filter.isUsed = true;
+  }
+
+  const page = query.page && query.page > 0 ? query.page : 1;
+  const limit = query.limit && query.limit > 0 ? query.limit : 10;
+  const skip = (page - 1) * limit;
+
+  const total = await Ticket.countDocuments(filter);
+  const tickets = await Ticket.find(filter)
+    .populate('eventId')
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
+
+  return {
+    tickets,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 1,
+    },
+  };
+}
+
+export interface CreateResaleListingData {
+  tokenId: string;
+  price: number;
+  txHash: string;
+}
+
+export async function createResaleListingService(
+  sellerWallet: string,
+  data: CreateResaleListingData,
+) {
+  const normalizedSeller = sellerWallet.trim().toLowerCase();
+
+  const ticket = await Ticket.findOne({ tokenId: data.tokenId });
+  if (!ticket) {
+    throw createError('Ticket not found', 404);
+  }
+
+  if (ticket.ownerWallet !== normalizedSeller) {
+    throw createError('You do not own this ticket', 403);
+  }
+
+  if (ticket.isUsed) {
+    throw createError('Cannot list an already redeemed ticket', 400);
+  }
+
+  if (ticket.isListed) {
+    throw createError('Ticket is already listed for resale', 409);
+  }
+
+  const event = await Event.findById(ticket.eventId);
+  if (!event) {
+    throw createError('Event not found', 404);
+  }
+
+  if (data.price > event.maxResalePrice) {
+    throw createError(
+      `Resale price exceeds maximum allowed cap of ${event.maxResalePrice} ETH`,
+      400,
+    );
+  }
+
+  if (new Date() > new Date(event.saleDeadline)) {
+    throw createError('Event sale deadline has passed', 400);
+  }
+
+  const expectedPriceWei = ethers.parseEther(data.price.toString());
+  await blockchainService.verifyListingCreatedOnChain({
+    txHash: data.txHash,
+    tokenId: data.tokenId,
+    sellerWallet: normalizedSeller,
+    expectedPriceWei,
+  });
+
+  const updatedTicket = await Ticket.findOneAndUpdate(
+    { tokenId: data.tokenId, ownerWallet: normalizedSeller, isListed: false },
+    { isListed: true, resalePrice: data.price, listingTxHash: data.txHash },
+    { new: true },
+  );
+
+  if (!updatedTicket) {
+    throw createError('Ticket is already listed for resale', 409);
+  }
+
+  await Transaction.create({
+    txHash: data.txHash,
+    type: 'resell',
+    tokenId: data.tokenId,
+    fromWallet: normalizedSeller,
+    toWallet: ethers.ZeroAddress,
+    price: data.price,
+    timestamp: new Date(),
+    status: 'SUCCESS',
+  });
+
+  return updatedTicket;
+}
+
+export async function cancelResaleListingService(
+  sellerWallet: string,
+  tokenId: string,
+  txHash: string,
+) {
+  const normalizedSeller = sellerWallet.trim().toLowerCase();
+
+  const ticket = await Ticket.findOne({ tokenId });
+  if (!ticket) {
+    throw createError('Ticket not found', 404);
+  }
+
+  if (ticket.ownerWallet !== normalizedSeller) {
+    throw createError('You do not own this ticket', 403);
+  }
+
+  if (!ticket.isListed) {
+    throw createError('Ticket is not currently listed for resale', 400);
+  }
+
+  await blockchainService.verifyListingCancelledOnChain({
+    txHash,
+    tokenId,
+    sellerWallet: normalizedSeller,
+  });
+
+  const updatedTicket = await Ticket.findOneAndUpdate(
+    { tokenId, ownerWallet: normalizedSeller, isListed: true },
+    { isListed: false, resalePrice: null, listingTxHash: '' },
+    { new: true },
+  );
+
+  if (!updatedTicket) {
+    throw createError('Ticket is not currently listed for resale', 400);
+  }
+
+  return updatedTicket;
+}
+
+export interface FulfillResalePurchaseData {
+  tokenId: string;
+  txHash: string;
+}
+
+export async function fulfillResalePurchaseService(
+  buyerWallet: string,
+  data: FulfillResalePurchaseData,
+) {
+  const normalizedBuyer = buyerWallet.trim().toLowerCase();
+
+  const ticket = await Ticket.findOne({ tokenId: data.tokenId });
+  if (!ticket) {
+    throw createError('Ticket not found', 404);
+  }
+
+  if (!ticket.isListed) {
+    throw createError('Ticket is not listed for resale', 400);
+  }
+
+  const verifyResult = await blockchainService.verifyListingSoldOnChain({
+    txHash: data.txHash,
+    tokenId: data.tokenId,
+    buyerWallet: normalizedBuyer,
+  });
+
+  const priceEth = Number(ethers.formatEther(verifyResult.priceWei));
+
+  const updatedTicket = await Ticket.findOneAndUpdate(
+    { tokenId: data.tokenId, isListed: true },
+    {
+      ownerWallet: normalizedBuyer,
+      isListed: false,
+      resalePrice: null,
+      listingTxHash: '',
+      lastTransferTxHash: data.txHash,
+    },
+    { new: true },
+  );
+
+  if (!updatedTicket) {
+    throw createError('Ticket resale already fulfilled or inactive', 409);
+  }
+
+  await Transaction.create({
+    txHash: data.txHash,
+    type: 'resell',
+    tokenId: data.tokenId,
+    fromWallet: verifyResult.sellerWallet,
+    toWallet: normalizedBuyer,
+    price: priceEth,
+    timestamp: new Date(),
+    status: 'SUCCESS',
+  });
+
+  return updatedTicket;
+}
+
+export interface GetResaleMarketplaceQuery {
+  eventId?: string;
+  sortBy?: string;
+  page?: number;
+  limit?: number;
+}
+
+export async function getResaleMarketplaceService(
+  query: GetResaleMarketplaceQuery,
+) {
+  const filter: any = { isListed: true };
+  if (query.eventId) {
+    filter.eventId = query.eventId;
+  }
+
+  const sortOption: any = {};
+  if (query.sortBy === 'price_asc') {
+    sortOption.resalePrice = 1;
+  } else if (query.sortBy === 'price_desc') {
+    sortOption.resalePrice = -1;
+  } else {
+    sortOption.updatedAt = -1;
+  }
+
+  const page = query.page && query.page > 0 ? query.page : 1;
+  const limit = query.limit && query.limit > 0 ? query.limit : 20;
+  const skip = (page - 1) * limit;
+
+  const total = await Ticket.countDocuments(filter);
+  const listings = await Ticket.find(filter)
+    .populate('eventId')
+    .sort(sortOption)
+    .skip(skip)
+    .limit(limit);
+
+  return {
+    listings,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 1,
+    },
+  };
+}
+
