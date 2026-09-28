@@ -93,7 +93,7 @@ describe('login — success', () => {
   it('ignores a changed email on a returning wallet', async () => {
     const wallet = Wallet.createRandom();
     await login(await buildRequest({}, wallet));
-    await login(await buildRequest({ email: 'attacker@evil.com' }, wallet));
+    await login(await buildRequest({ email: 'attacker@evil.com', nonce: 'second' }, wallet));
 
     const user = await User.findOne({ walletAddress: wallet.address.toLowerCase() });
     expect(user?.email).toBe('user@example.com');
@@ -185,6 +185,20 @@ describe('login — domain binding', () => {
     await expect(login(await buildRequest({ domain: 'LOCALHOST:3000' }))).rejects.toThrow(
       'Invalid login domain',
     );
+  });
+});
+
+describe('login — nonce replay', () => {
+  it('rejects a second login that replays the same payload and signature', async () => {
+    const wallet = Wallet.createRandom();
+    const req = await buildRequest({}, wallet);
+
+    await expect(login(req)).resolves.toEqual(expect.anything());
+
+    await expect(login(req)).rejects.toMatchObject({
+      message: 'Nonce has already been used',
+      statusCode: 401,
+    });
   });
 });
 
