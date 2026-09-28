@@ -45,6 +45,8 @@ describe('Blockchain Service & withRetry', () => {
       mockContract = {
         createEvent: jest.fn(),
         mintTicket: jest.fn(),
+        ownerOf: jest.fn(),
+        markUsed: jest.fn(),
         interface: {
           parseLog: jest.fn(),
         },
@@ -177,6 +179,66 @@ describe('Blockchain Service & withRetry', () => {
           metadataURI: 'ipfs://QmMetadata',
         }),
       ).rejects.toThrow('TicketMinted event not found in transaction logs');
+    });
+
+    describe('ownerOfOnChain', () => {
+      it('should return the lowercased owner address', async () => {
+        mockContract.ownerOf.mockResolvedValue('0x70997970C51812dc3A010C7d01b50e0d17dc79C8');
+
+        const owner = await service.ownerOfOnChain('1');
+
+        expect(owner).toBe('0x70997970c51812dc3a010c7d01b50e0d17dc79c8');
+        expect(mockContract.ownerOf).toHaveBeenCalledWith('1');
+      });
+
+      it('should throw 502 when the RPC call fails', async () => {
+        mockContract.ownerOf.mockRejectedValue(new Error('RPC error'));
+
+        await expect(service.ownerOfOnChain('1')).rejects.toThrow(
+          'Failed to query ticket owner on-chain',
+        );
+      });
+    });
+
+    describe('markUsedOnChain', () => {
+      it('should call contract.markUsed and return txHash and blockNumber', async () => {
+        mockContract.markUsed.mockResolvedValue({
+          hash: '0xmarkUsedTxHash',
+          wait: jest.fn().mockResolvedValue({ status: 1, blockNumber: 999 }),
+        });
+
+        const res = await service.markUsedOnChain('1');
+
+        expect(res).toEqual({ txHash: '0xmarkUsedTxHash', blockNumber: 999, alreadyUsed: false });
+        expect(mockContract.markUsed).toHaveBeenCalledWith('1');
+      });
+
+      it('should throw 500 if the transaction reverts', async () => {
+        mockContract.markUsed.mockResolvedValue({
+          hash: '0xfailedMarkUsedTx',
+          wait: jest.fn().mockResolvedValue({ status: 0 }),
+        });
+
+        await expect(service.markUsedOnChain('1')).rejects.toThrow(
+          'Transaction reverted on-chain',
+        );
+      });
+
+      it('should treat an on-chain "Ticket already used" revert as idempotent success', async () => {
+        mockContract.markUsed.mockRejectedValue({ reason: 'Ticket already used' });
+
+        const res = await service.markUsedOnChain('1');
+
+        expect(res).toEqual({ txHash: '', blockNumber: 0, alreadyUsed: true });
+      });
+
+      it('should throw 500 for any other submission failure', async () => {
+        mockContract.markUsed.mockRejectedValue(new Error('network error'));
+
+        await expect(service.markUsedOnChain('1')).rejects.toThrow(
+          'Failed to submit redemption transaction',
+        );
+      });
     });
 
     it('should instantiate default BlockchainService instance without error', () => {
