@@ -7,6 +7,7 @@ import {
   cancelResaleListingService,
   fulfillResalePurchaseService,
   getResaleMarketplaceService,
+  verifyTicketService,
 } from './tickets.service';
 import {
   createResaleListingSchema,
@@ -14,6 +15,7 @@ import {
   fulfillResalePurchaseSchema,
   myTicketsQuerySchema,
   resaleMarketplaceQuerySchema,
+  verifyTicketSchema,
 } from './tickets.validation';
 import { sendSuccess } from '@/shared/utils/response';
 import { createError } from '@/shared/utils/appError';
@@ -136,6 +138,24 @@ export async function fulfillResalePurchaseController(
     }
 
     const result = await fulfillResalePurchaseService(req.user.walletAddress, parsed.data);
+    sendSuccess(res, result, 200);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function verifyTicketController(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const parsed = verifyTicketSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw createError(parsed.error.errors[0]?.message || 'Invalid request body', 400);
+    }
+
+    const result = await verifyTicketService(parsed.data);
     sendSuccess(res, result, 200);
   } catch (error) {
     next(error);
