@@ -2,15 +2,15 @@
 
 > **Application:** Web3 Decentralized E-Ticketing Platform (AuthenTix)  
 > **Current Phase:** Phase 2 — Backend API & Event Listener (`backend/`)  
-> **Last Updated:** 2026-09-16
+> **Last Updated:** 2026-09-28
 
 ---
 
 ## 🎯 Current Status / Active Task
 
 - **Focus:** Phase 2 - Backend API (`backend/`) — **IN PROGRESS**
-- **Status:** TASK-BE-01 through TASK-BE-07 completed (Server Setup, Database Models, Authentication, IPFS Metadata Upload, Event Management API, Ticket Purchase & Relayer Minting, Ticket Resale API & User Ticket Lifecycle). 303 backend tests passing across 31 suites.
-- **Next Focus:** TASK-BE-08 (Dynamic QR Verification).
+- **Status:** TASK-BE-01 through TASK-BE-08 completed (Server Setup, Database Models, Authentication, IPFS Metadata Upload, Event Management API, Ticket Purchase & Relayer Minting, Ticket Resale API & User Ticket Lifecycle, Dynamic QR Verification Engine). 336 backend tests passing across 34 suites.
+- **Next Focus:** TASK-BE-09 (Blockchain Event Listener & Recovery Engine).
 
 ---
 
@@ -35,6 +35,11 @@
 - [x] **TASK-FE-01 to TASK-FE-09: Next.js 14 Frontend UI Suite Completed:** Scaffolded Next.js 14 App Router application in `frontend/` with Tailwind CSS obsidian dark theme, Framer Motion animations, Lucide React icons, and presentation mock data layer. Built Navbar & Footer shell, Buyer Portal (Homepage, Event Explorer, Event Detail view, Purchase Modal, My Tickets gallery, Ticket Provenance detail, Dynamic 30s QR Code Modal), Organizer Studio (4-step Event Creation Wizard with Pinata IPFS preview, Analytics Dashboard, Mobile Ticket Verification Scanner with camera viewfinder simulation), and Admin System Health Dashboard. `npm run build` passing cleanly with 0 errors across 9 static/dynamic routes.
 - [x] **TASK-BE-06: Ticket Purchase & Blockchain Relayer Service:** Implemented `POST /api/tickets/purchase` endpoint and relayer minting pipeline. Includes atomic quota reservation with optimistic locking (`findOneAndUpdate` on `remainingQuota > 0`), auto-incrementing sequential ticket IDs (`Counter` model), ticket metadata generation & Pinata IPFS upload, relayer transaction execution (`mintTicket`) via Ethers.js v6 on Optimism Sepolia, up to 3 automatic mint retries with exponential backoff on transient RPC errors, permanent failure handling flagging `isPendingMint: true` / `PENDING_MINT` transaction log with admin alerts. 267 backend tests passing.
 - [x] **TASK-BE-07: Ticket Resale API & User Ticket Lifecycle:** Implemented 5 resale and ticket management endpoints: `GET /api/tickets/my` (catalog with `all|active|resale|used` filters), `POST /api/tickets/resell` (anti-scalping price cap verification $\le$ `maxResalePrice`, deadline check, on-chain receipt verification for `ListingCreated`, atomic listing update), `DELETE /api/tickets/resell/:tokenId` (on-chain `ListingCancelled` verification, listing rollback), `POST /api/tickets/resell/purchase` (on-chain `ListingSold` verification, buyer ownership transfer, `resell` transaction audit log), and `GET /api/tickets/resale` (public marketplace catalog with price sorting and event filter). 303 backend tests passing across 31 suites.
+- [x] **TASK-BE-08: Dynamic QR & Verification Engine:** Implemented `POST /api/tickets/verify` (`authenticateJWT` + `authorizeRole('organizer','admin')` — the JWT authenticates the scanning gate staff, the signature inside the body authenticates the ticket holder). Verification pipeline runs cheap-to-expensive: timestamp window check (rejects an expired QR and, since the FR-07 payload carries no `issuedAt`, also rejects an `expiresAt` signed further than 30s+skew into the future — the only way to enforce freshness without an issuance timestamp) → nonce consumption → wallet signature check (`serializeQrPayload`, same fixed-key-order pattern as `serializeLoginPayload`) → MongoDB `isUsed` fast-path guard → an optimistic-lock `findOneAndUpdate` that claims the ticket before spending gas (blocks concurrent double-scans) → on-chain `ownerOf` check (authoritative over MongoDB's cached `ownerWallet`, so an unindexed resale still verifies) → relayer `markUsed(tokenId)` write with 3x retry. Any failure after the optimistic lock rolls it back so the ticket stays scannable; an exhausted-retry redemption logs a `FAILED` `Transaction` row and an `[ADMIN_ALERT_MARK_USED_FAILED]` console alert, mirroring the existing `PENDING_MINT` pattern. `markUsedOnChain` treats the contract's own `"Ticket already used"` revert as an idempotent success (a legitimate outcome when a retry's transaction actually lands after the caller had already timed out), rather than a failure.
+  - **Shared nonce store:** new `UsedNonce` model (`backend/src/shared/models/nonce.model.ts`, unique `{scope, nonce}` index + TTL cleanup on `expiresAt`) and `consumeNonce()` service, scoped `'login' | 'qr-verify'` so one store serves both flows.
+  - **Closed a TASK-BE-03 gap:** `auth.service.ts`'s `login()` validated payload expiry/domain/statement/signature but never persisted the SIWE `nonce`, so a captured login payload was replayable until its 5-minute expiry. `login()` now calls `consumeNonce({ scope: 'login', ... })` right before the signature check, closing PRD SR-05/SR-06 for both flows with one store.
+  - `Transaction.type` enum gained `'redeem'`. `BlockchainService` gained `ownerOfOnChain` (read) and `markUsedOnChain` (write, idempotent on-chain-already-used detection); `EVENT_TICKET_NFT_ABI` gained `markUsed` and the two-arg `TicketUsed(tokenId, eventId)` event (the deployed contract's real signature, which differs from the PRD's simplified single-arg prose).
+  - 336 backend tests passing across 34 suites (up from 303/31).
 
 ---
 
@@ -48,7 +53,7 @@
 - [x] Implement Event Management APIs (`POST /api/events`, `GET /api/events`, `GET /api/events/:id`).
 - [x] Implement Ticket Purchase & Relayer Minting service with retry logic.
 - [x] Implement Ticket Resale API & Marketplace Lifecycle.
-- [ ] Implement Dynamic 30s QR Verification Engine (`POST /api/tickets/verify`).
+- [x] Implement Dynamic 30s QR Verification Engine (`POST /api/tickets/verify`).
 - [ ] Implement Blockchain Event Listener & catch-up block sync engine.
 
 ---
