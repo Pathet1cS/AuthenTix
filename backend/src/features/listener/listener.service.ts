@@ -141,9 +141,79 @@ export class ListenerService {
     }
   }
 
+  /**
+   * Subscribes to live contract events for real-time processing after
+   * catch-up completes. Each handler invocation is wrapped so a single
+   * failure is logged and does not crash the process or block subsequent
+   * events; the failed event's txHash/block are logged for manual
+   * investigation (idempotent handlers make it safe to replay later via
+   * a service restart and catch-up).
+   *
+   * Checkpoint updates are throttled (not written on every single event)
+   * to avoid hammering MongoDB during bursts of activity; see
+   * updateCheckpointThrottled().
+   */
   private async subscribeToEvents(): Promise<void> {
-    // Implemented in Task 7.
-    console.log('[Listener] Real-time subscription not yet implemented.');
+    console.log('[Listener] Starting real-time event subscription...');
+
+    this.contract.on('TicketMinted', async (...args: unknown[]) => {
+      const rawLog = args[args.length - 1] as ethers.EventLog;
+      await this.handleLiveEvent(rawLog);
+    });
+
+    this.contract.on('TicketTransferred', async (...args: unknown[]) => {
+      const rawLog = args[args.length - 1] as ethers.EventLog;
+      await this.handleLiveEvent(rawLog);
+    });
+
+    this.contract.on('TicketUsed', async (...args: unknown[]) => {
+      const rawLog = args[args.length - 1] as ethers.EventLog;
+      await this.handleLiveEvent(rawLog);
+    });
+
+    this.isListening = true;
+    console.log('[Listener] Real-time subscription active.');
+  }
+
+  private async handleLiveEvent(rawLog: ethers.EventLog): Promise<void> {
+    const log = this.parseEventLog(rawLog);
+    try {
+      await this.processEvent(log);
+      await this.updateCheckpointThrottled(log.blockNumber);
+    } catch (error) {
+      console.error(
+        `[Listener] Real-time handler error for ${log.eventName} (block=${log.blockNumber}, txHash=${log.transactionHash}):`,
+        error,
+      );
+    }
+  }
+
+  private lastCheckpointUpdateAt = 0;
+  private highestCheckpointedBlock = 0;
+  private readonly checkpointIntervalMs = 30_000;
+
+  /**
+   * Writes SyncState.lastProcessedBlock at most once per checkpointIntervalMs,
+   * and never moves it backwards (relevant because live event handlers run
+   * concurrently and may settle out of block order).
+   */
+  private async updateCheckpointThrottled(blockNumber: number): Promise<void> {
+    if (blockNumber > this.highestCheckpointedBlock) {
+      this.highestCheckpointedBlock = blockNumber;
+    }
+
+    const now = Date.now();
+    if (now - this.lastCheckpointUpdateAt <= this.checkpointIntervalMs) {
+      return;
+    }
+
+    await SyncState.findOneAndUpdate(
+      {},
+      { lastProcessedBlock: this.highestCheckpointedBlock },
+      { upsert: true },
+    );
+    this.lastCheckpointUpdateAt = now;
+    console.log(`[Listener] Checkpoint updated to block ${this.highestCheckpointedBlock}`);
   }
 
   async stop(): Promise<void> {
