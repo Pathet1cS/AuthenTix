@@ -233,6 +233,143 @@ describe('ListenerService.catchUpFromLastCheckpoint (private, exercised via star
   });
 });
 
+describe('ListenerService.subscribeToEvents (private, exercised via start())', () => {
+  it('registers listeners for all three event types', async () => {
+    await SyncState.create({ lastProcessedBlock: 200 });
+
+    const service = new ListenerService();
+
+    const mockContract = {
+      queryFilter: jest.fn().mockResolvedValue([]),
+      removeAllListeners: jest.fn(),
+      on: jest.fn(),
+    };
+
+    const mockProvider = {
+      getBlockNumber: jest.fn().mockResolvedValue(200),
+      getBlock: jest.fn(),
+    };
+
+    (service as any).contract = mockContract;
+    (service as any).provider = mockProvider;
+    (service as any).connectProvider = jest.fn();
+
+    await service.start();
+
+    expect(mockContract.on).toHaveBeenCalledWith('TicketMinted', expect.any(Function));
+    expect(mockContract.on).toHaveBeenCalledWith('TicketTransferred', expect.any(Function));
+    expect(mockContract.on).toHaveBeenCalledWith('TicketUsed', expect.any(Function));
+  });
+
+  it('processes a live event through the real handler and updates the checkpoint on first event', async () => {
+    const eventDoc = await Event.create({
+      organizerId: new mongoose.Types.ObjectId(),
+      onChainEventId: 1,
+      name: 'Test Event',
+      description: 'Test Description',
+      eventDate: new Date('2026-12-01'),
+      ticketPrice: 0.05,
+      maxResalePrice: 0.075,
+      saleDeadline: new Date('2026-11-30'),
+      totalCapacity: 100,
+      remainingQuota: 100,
+      posterCID: 'ipfs://test',
+      status: 'active',
+    });
+    void eventDoc;
+
+    await SyncState.create({ lastProcessedBlock: 200 });
+
+    const service = new ListenerService();
+
+    let mintedCallback: ((...args: unknown[]) => Promise<void>) | undefined;
+    const mockContract = {
+      queryFilter: jest.fn().mockResolvedValue([]),
+      removeAllListeners: jest.fn(),
+      on: jest.fn((eventName: string, cb: (...args: unknown[]) => Promise<void>) => {
+        if (eventName === 'TicketMinted') mintedCallback = cb;
+      }),
+    };
+
+    const mockProvider = {
+      getBlockNumber: jest.fn().mockResolvedValue(200),
+      getBlock: jest.fn().mockResolvedValue({ timestamp: 1696118400 }),
+    };
+
+    (service as any).contract = mockContract;
+    (service as any).provider = mockProvider;
+    (service as any).connectProvider = jest.fn();
+
+    await service.start();
+    expect(mintedCallback).toBeDefined();
+
+    const liveLog = fakeEventLog({
+      eventName: 'TicketMinted',
+      args: { tokenId: 1n, eventId: 1n, owner: '0xAlice', tokenURI: 'ipfs://live' },
+      blockNumber: 201,
+      transactionHash: '0xlivemint',
+      logIndex: 0,
+    });
+
+    // Real contract.on callbacks receive (...decodedArgs, eventLogObject);
+    // simulate that shape with the eventLogObject as the final arg.
+    await mintedCallback!(1n, 1n, '0xAlice', 'ipfs://live', liveLog);
+
+    const ticket = await Ticket.findOne({ tokenId: '1' });
+    expect(ticket?.ownerWallet).toBe('0xalice');
+
+    // First event within the 30s throttle window should still write the
+    // checkpoint immediately, since lastCheckpointUpdateAt starts at 0.
+    const syncState = await SyncState.findOne({});
+    expect(syncState?.lastProcessedBlock).toBe(201);
+  });
+
+  it('does not crash the process when a live handler throws', async () => {
+    await SyncState.create({ lastProcessedBlock: 200 });
+
+    const service = new ListenerService();
+
+    let transferredCallback: ((...args: unknown[]) => Promise<void>) | undefined;
+    const mockContract = {
+      queryFilter: jest.fn().mockResolvedValue([]),
+      removeAllListeners: jest.fn(),
+      on: jest.fn((eventName: string, cb: (...args: unknown[]) => Promise<void>) => {
+        if (eventName === 'TicketTransferred') transferredCallback = cb;
+      }),
+    };
+
+    const mockProvider = {
+      getBlockNumber: jest.fn().mockResolvedValue(200),
+      getBlock: jest.fn().mockResolvedValue({ timestamp: 1696118400 }),
+    };
+
+    (service as any).contract = mockContract;
+    (service as any).provider = mockProvider;
+    (service as any).connectProvider = jest.fn();
+
+    await service.start();
+    expect(transferredCallback).toBeDefined();
+
+    const liveLog = fakeEventLog({
+      eventName: 'TicketTransferred',
+      args: { tokenId: 999n, from: '0xAlice', to: '0xBob' }, // nonexistent ticket -> handler throws
+      blockNumber: 202,
+      transactionHash: '0xbadlivetransfer',
+      logIndex: 0,
+    });
+
+    // Should not throw/reject -- errors are caught and logged internally.
+    await expect(
+      transferredCallback!(999n, '0xAlice', '0xBob', liveLog),
+    ).resolves.toBeUndefined();
+
+    // Checkpoint should not have advanced past the pre-seeded value since
+    // the handler failed before updateCheckpointThrottled ran.
+    const syncState = await SyncState.findOne({});
+    expect(syncState?.lastProcessedBlock).toBe(200);
+  });
+});
+
 describe('ListenerService.stop', () => {
   it('removes contract listeners and destroys a WebSocket provider', async () => {
     const service = new ListenerService();
