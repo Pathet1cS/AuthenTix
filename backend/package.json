@@ -7,6 +7,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "listener": "tsx src/features/listener/index.ts",
+    "listener:watch": "tsx watch src/features/listener/index.ts",
     "test": "jest",
     "test:watch": "jest --watch"
   },
