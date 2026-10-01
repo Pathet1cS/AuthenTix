@@ -2,7 +2,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface ITransaction extends Document {
   txHash: string;
-  type: 'mint' | 'transfer' | 'resell';
+  type: 'mint' | 'transfer' | 'resell' | 'redeem';
   tokenId: string;
   fromWallet: string;
   toWallet: string;
@@ -22,7 +22,7 @@ const transactionSchema = new Schema<ITransaction>(
     },
     type: {
       type: String,
-      enum: ['mint', 'transfer', 'resell'],
+      enum: ['mint', 'transfer', 'resell', 'redeem'],
       required: true,
     },
     tokenId: {
