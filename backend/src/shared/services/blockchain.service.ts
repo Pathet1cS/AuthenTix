@@ -10,6 +10,7 @@ export const EVENT_TICKET_NFT_ABI = [
   'event ListingCancelled(uint256 indexed tokenId, address indexed seller)',
   'event ListingSold(uint256 indexed tokenId, address indexed seller, address indexed buyer, uint256 price)',
   'event TicketTransferred(uint256 indexed tokenId, address indexed from, address indexed to)',
+  'event TicketUsed(uint256 indexed tokenId, uint256 indexed eventId)',
   'function ownerOf(uint256 tokenId) external view returns (address)',
   'function resaleListings(uint256 tokenId) external view returns (address seller, uint256 price, bool isActive)',
   'function markUsed(uint256 tokenId) external',
