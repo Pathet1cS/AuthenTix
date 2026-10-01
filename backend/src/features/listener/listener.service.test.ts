@@ -370,6 +370,130 @@ describe('ListenerService.subscribeToEvents (private, exercised via start())', (
   });
 });
 
+describe('ListenerService end-to-end restart & recovery scenario', () => {
+  it('resumes exactly where it left off after a simulated crash/restart, with no duplicate or missed events', async () => {
+    const eventDoc = await Event.create({
+      organizerId: new mongoose.Types.ObjectId(),
+      onChainEventId: 1,
+      name: 'Test Event',
+      description: 'Test Description',
+      eventDate: new Date('2026-12-01'),
+      ticketPrice: 0.05,
+      maxResalePrice: 0.075,
+      saleDeadline: new Date('2026-11-30'),
+      totalCapacity: 100,
+      remainingQuota: 100,
+      posterCID: 'ipfs://test',
+      status: 'active',
+    });
+
+    await SyncState.create({ lastProcessedBlock: 10 });
+
+    // --- First "run": processes 2 historical events, then simulates a crash
+    // (no SyncState advancement beyond what catch-up wrote) ---
+    const firstMint = fakeEventLog({
+      eventName: 'TicketMinted',
+      args: { tokenId: 1n, eventId: 1n, owner: '0xAlice', tokenURI: 'ipfs://token1' },
+      blockNumber: 20,
+      transactionHash: '0xmint1',
+      logIndex: 0,
+    });
+    const secondMint = fakeEventLog({
+      eventName: 'TicketMinted',
+      args: { tokenId: 2n, eventId: 1n, owner: '0xBob', tokenURI: 'ipfs://token2' },
+      blockNumber: 25,
+      transactionHash: '0xmint2',
+      logIndex: 0,
+    });
+
+    const serviceRun1 = new ListenerService();
+    const mockContractRun1 = {
+      queryFilter: jest.fn(async (eventName: string) => {
+        if (eventName === 'TicketMinted') return [firstMint, secondMint];
+        return [];
+      }),
+      removeAllListeners: jest.fn(),
+      on: jest.fn(),
+    };
+    const mockProviderRun1 = {
+      getBlockNumber: jest.fn().mockResolvedValue(25),
+      getBlock: jest.fn().mockResolvedValue({ timestamp: 1696118400 }),
+    };
+
+    (serviceRun1 as any).contract = mockContractRun1;
+    (serviceRun1 as any).provider = mockProviderRun1;
+    (serviceRun1 as any).connectProvider = jest.fn();
+
+    await serviceRun1.start(); // runs catch-up (blocks 11-25) + subscribes
+    await serviceRun1.stop(); // simulate process shutdown ("crash")
+
+    let syncState = await SyncState.findOne({});
+    expect(syncState?.lastProcessedBlock).toBe(25);
+    expect(await Ticket.countDocuments()).toBe(2);
+
+    // --- Simulate downtime: 2 more events emitted on-chain while the
+    // listener was down (blocks 30 and 35) ---
+    const thirdMint = fakeEventLog({
+      eventName: 'TicketMinted',
+      args: { tokenId: 3n, eventId: 1n, owner: '0xCarol', tokenURI: 'ipfs://token3' },
+      blockNumber: 30,
+      transactionHash: '0xmint3',
+      logIndex: 0,
+    });
+    const usedDuringDowntime = fakeEventLog({
+      eventName: 'TicketUsed',
+      args: { tokenId: 1n, eventId: 1n },
+      blockNumber: 35,
+      transactionHash: '0xused1',
+      logIndex: 0,
+    });
+
+    // --- Second "run": a fresh ListenerService instance (as happens on
+    // process restart) picks up from the persisted checkpoint ---
+    const serviceRun2 = new ListenerService();
+    const mockContractRun2 = {
+      queryFilter: jest.fn(async (eventName: string) => {
+        if (eventName === 'TicketMinted') return [thirdMint];
+        if (eventName === 'TicketUsed') return [usedDuringDowntime];
+        return [];
+      }),
+      removeAllListeners: jest.fn(),
+      on: jest.fn(),
+    };
+    const mockProviderRun2 = {
+      getBlockNumber: jest.fn().mockResolvedValue(35),
+      getBlock: jest.fn().mockResolvedValue({ timestamp: 1696200000 }),
+    };
+
+    (serviceRun2 as any).contract = mockContractRun2;
+    (serviceRun2 as any).provider = mockProviderRun2;
+    (serviceRun2 as any).connectProvider = jest.fn();
+
+    await serviceRun2.start();
+
+    // Catch-up should have queried only the gap (26-35), not replayed 11-25.
+    expect(mockContractRun2.queryFilter).toHaveBeenCalledWith('TicketMinted', 26, 35);
+    expect(mockContractRun2.queryFilter).toHaveBeenCalledWith('TicketTransferred', 26, 35);
+    expect(mockContractRun2.queryFilter).toHaveBeenCalledWith('TicketUsed', 26, 35);
+
+    // All 3 tickets exist exactly once (no duplicates from re-processing).
+    expect(await Ticket.countDocuments()).toBe(3);
+    const ticket1 = await Ticket.findOne({ tokenId: '1' });
+    expect(ticket1?.isUsed).toBe(true); // picked up the downtime TicketUsed event
+    const ticket3 = await Ticket.findOne({ tokenId: '3' });
+    expect(ticket3?.ownerWallet).toBe('0xcarol');
+
+    // Checkpoint now reflects the full history, not just the second run's start.
+    syncState = await SyncState.findOne({});
+    expect(syncState?.lastProcessedBlock).toBe(35);
+
+    const updatedEvent = await Event.findById(eventDoc._id);
+    expect(updatedEvent?.remainingQuota).toBe(97); // 3 mints total across both runs
+
+    await serviceRun2.stop();
+  });
+});
+
 describe('ListenerService.stop', () => {
   it('removes contract listeners and destroys a WebSocket provider', async () => {
     const service = new ListenerService();
