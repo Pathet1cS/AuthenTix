@@ -2,15 +2,15 @@
 
 > **Application:** Web3 Decentralized E-Ticketing Platform (AuthenTix)  
 > **Current Phase:** Phase 2 — Backend API & Event Listener (`backend/`)  
-> **Last Updated:** 2026-09-16
+> **Last Updated:** 2026-10-01
 
 ---
 
 ## 🎯 Current Status / Active Task
 
 - **Focus:** Phase 2 - Backend API (`backend/`) — **IN PROGRESS**
-- **Status:** TASK-BE-01 through TASK-BE-07 completed (Server Setup, Database Models, Authentication, IPFS Metadata Upload, Event Management API, Ticket Purchase & Relayer Minting, Ticket Resale API & User Ticket Lifecycle). 303 backend tests passing across 31 suites.
-- **Next Focus:** TASK-BE-08 (Dynamic QR Verification).
+- **Status:** TASK-BE-01 through TASK-BE-07 and TASK-BE-09 completed (Server Setup, Database Models, Authentication, IPFS Metadata Upload, Event Management API, Ticket Purchase & Relayer Minting, Ticket Resale API & User Ticket Lifecycle, Blockchain Event Listener & Recovery Engine). TASK-BE-08 (Dynamic QR Verification) has design spec + implementation plan drafted on branch `feature/be-08-qr-verification` but no code yet — implemented out of its original numeric order because TASK-BE-09 did not depend on it. 334 backend tests passing across 35 suites.
+- **Next Focus:** TASK-BE-08 (Dynamic QR Verification) — implement the design already drafted on `feature/be-08-qr-verification`, then TASK-BE-10 (Rate Limiting & Security Hardening).
 
 ---
 
@@ -35,6 +35,7 @@
 - [x] **TASK-FE-01 to TASK-FE-09: Next.js 14 Frontend UI Suite Completed:** Scaffolded Next.js 14 App Router application in `frontend/` with Tailwind CSS obsidian dark theme, Framer Motion animations, Lucide React icons, and presentation mock data layer. Built Navbar & Footer shell, Buyer Portal (Homepage, Event Explorer, Event Detail view, Purchase Modal, My Tickets gallery, Ticket Provenance detail, Dynamic 30s QR Code Modal), Organizer Studio (4-step Event Creation Wizard with Pinata IPFS preview, Analytics Dashboard, Mobile Ticket Verification Scanner with camera viewfinder simulation), and Admin System Health Dashboard. `npm run build` passing cleanly with 0 errors across 9 static/dynamic routes.
 - [x] **TASK-BE-06: Ticket Purchase & Blockchain Relayer Service:** Implemented `POST /api/tickets/purchase` endpoint and relayer minting pipeline. Includes atomic quota reservation with optimistic locking (`findOneAndUpdate` on `remainingQuota > 0`), auto-incrementing sequential ticket IDs (`Counter` model), ticket metadata generation & Pinata IPFS upload, relayer transaction execution (`mintTicket`) via Ethers.js v6 on Optimism Sepolia, up to 3 automatic mint retries with exponential backoff on transient RPC errors, permanent failure handling flagging `isPendingMint: true` / `PENDING_MINT` transaction log with admin alerts. 267 backend tests passing.
 - [x] **TASK-BE-07: Ticket Resale API & User Ticket Lifecycle:** Implemented 5 resale and ticket management endpoints: `GET /api/tickets/my` (catalog with `all|active|resale|used` filters), `POST /api/tickets/resell` (anti-scalping price cap verification $\le$ `maxResalePrice`, deadline check, on-chain receipt verification for `ListingCreated`, atomic listing update), `DELETE /api/tickets/resell/:tokenId` (on-chain `ListingCancelled` verification, listing rollback), `POST /api/tickets/resell/purchase` (on-chain `ListingSold` verification, buyer ownership transfer, `resell` transaction audit log), and `GET /api/tickets/resale` (public marketplace catalog with price sorting and event filter). 303 backend tests passing across 31 suites.
+- [x] **TASK-BE-09: Blockchain Event Listener & Recovery Engine:** Implemented a standalone background process (`src/features/listener/`, run via `npm run listener`) independent from the Express API. `ListenerService` connects to Optimism Sepolia (WebSocket preferred via `WS_RPC_URL`, HTTP `JsonRpcProvider` fallback), and on startup replays all historical `TicketMinted`/`TicketTransferred`/`TicketUsed` logs from the persisted `SyncState.lastProcessedBlock` checkpoint (or `CONTRACT_DEPLOYMENT_BLOCK` on a fresh database) up to the current chain head, in `LISTENER_BATCH_SIZE`-sized block ranges, sorted chronologically by `(blockNumber, logIndex)`. The checkpoint only advances after a batch fully succeeds, so a crash mid-batch safely retries that range on restart — all three handlers (`ticketMinted`, `ticketTransferred`, `ticketUsed`) are idempotent (keyed off `mintTxHash` / `Transaction.txHash` / existing `isUsed` state) to make replay safe. After catch-up, it subscribes to the same three events live via `contract.on(...)`, throttling `SyncState` writes to once per 30s while never regressing the checkpoint. `TicketTransferred` handling is interoperable with the BE-07 resale API: a transfer whose `txHash` already has a `type: 'resell'` Transaction (written synchronously by `POST /api/tickets/resell/purchase`) is recognized as already-synchronized and skipped rather than overwritten with `type: 'transfer'`. Added `'redeem'` to `Transaction.type` and `TicketUsed` to `EVENT_TICKET_NFT_ABI` (both previously absent since no code needed them yet). New env vars: `WS_RPC_URL` (optional), `CONTRACT_DEPLOYMENT_BLOCK` (required), `LISTENER_BATCH_SIZE`, `LISTENER_CHECKPOINT_INTERVAL`. Operational runbook at `backend/README-LISTENER.md`. 334 backend tests passing across 35 suites (58 new tests added for this task, plus a `multer` dependency gap fixed via `npm install` that was blocking 6 pre-existing suites from running at all).
 
 ---
 
@@ -48,8 +49,8 @@
 - [x] Implement Event Management APIs (`POST /api/events`, `GET /api/events`, `GET /api/events/:id`).
 - [x] Implement Ticket Purchase & Relayer Minting service with retry logic.
 - [x] Implement Ticket Resale API & Marketplace Lifecycle.
-- [ ] Implement Dynamic 30s QR Verification Engine (`POST /api/tickets/verify`).
-- [ ] Implement Blockchain Event Listener & catch-up block sync engine.
+- [x] Implement Blockchain Event Listener & catch-up block sync engine.
+- [ ] Implement Dynamic 30s QR Verification Engine (`POST /api/tickets/verify`). Design spec + implementation plan already drafted on `feature/be-08-qr-verification`; code not yet written.
 
 ---
 
