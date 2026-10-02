@@ -2,7 +2,10 @@ import { Event } from '@/shared/models/event.model';
 import { Ticket } from '@/shared/models/ticket.model';
 import { Transaction } from '@/shared/models/transaction.model';
 import { blockchainService, withRetry } from '@/shared/services/blockchain.service';
+import { consumeNonce } from '@/shared/services/nonce.service';
+import { verifyWalletSignature } from '@/shared/utils/signature';
 import { createError } from '@/shared/utils/appError';
+import { VerifyTicketPayload, serializeQrPayload } from './tickets.validation';
 import { ethers } from 'ethers';
 
 export interface PurchaseTicketResult {
@@ -387,5 +390,141 @@ export async function getResaleMarketplaceService(
       totalPages: Math.ceil(total / limit) || 1,
     },
   };
+}
+
+const QR_VALIDITY_MS = 30_000;
+const QR_CLOCK_SKEW_MS = 5_000;
+
+export interface VerifyTicketResult {
+  tokenId: string;
+  isUsed: true;
+  usedAt: Date;
+  txHash: string;
+}
+
+export async function verifyTicketService(
+  payload: VerifyTicketPayload,
+): Promise<VerifyTicketResult> {
+  const normalizedWallet = payload.walletAddress.trim().toLowerCase();
+  const nowMs = Date.now();
+  const expiresAtMs = payload.expiresAt * 1000;
+
+  if (expiresAtMs <= nowMs) {
+    throw createError('QR code has expired', 401);
+  }
+  // The payload carries no issuedAt, so bounding how far ahead expiresAt may
+  // legally be is the only way to enforce the 30-second freshness window.
+  if (expiresAtMs > nowMs + QR_VALIDITY_MS + QR_CLOCK_SKEW_MS) {
+    throw createError('Invalid QR code timestamp', 401);
+  }
+
+  await consumeNonce({
+    scope: 'qr-verify',
+    nonce: payload.nonce,
+    walletAddress: normalizedWallet,
+    expiresAt: new Date(expiresAtMs),
+  });
+
+  const isValidSignature = await verifyWalletSignature({
+    address: payload.walletAddress,
+    message: serializeQrPayload(payload),
+    signature: payload.signature,
+  });
+  if (!isValidSignature) {
+    throw createError('Invalid signature', 401);
+  }
+
+  const ticket = await Ticket.findOne({ tokenId: payload.tokenId });
+  if (!ticket) {
+    throw createError('Ticket not found', 404);
+  }
+  if (ticket.isUsed) {
+    throw createError('Ticket has already been used', 409);
+  }
+
+  // Claim the ticket in Mongo before spending gas, so two concurrent scans of
+  // the same ticket can't both reach the relayer.
+  const lockedTicket = await Ticket.findOneAndUpdate(
+    { tokenId: payload.tokenId, isUsed: false },
+    { isUsed: true, usedAt: new Date() },
+    { new: true },
+  );
+  if (!lockedTicket) {
+    throw createError('Ticket has already been used', 409);
+  }
+
+  const rollbackLock = () =>
+    Ticket.findOneAndUpdate(
+      { tokenId: payload.tokenId },
+      { isUsed: false, usedAt: null },
+    );
+
+  let onChainOwner: string;
+  try {
+    onChainOwner = await blockchainService.ownerOfOnChain(payload.tokenId);
+  } catch (error) {
+    await rollbackLock();
+    throw error;
+  }
+
+  // The contract, not MongoDB, is authoritative for current ownership — a
+  // resale the backend hasn't indexed yet must still verify correctly.
+  if (onChainOwner !== normalizedWallet) {
+    await rollbackLock();
+    throw createError('On-chain owner does not match ticket holder', 403);
+  }
+
+  try {
+    const markResult = await withRetry(
+      () => blockchainService.markUsedOnChain(payload.tokenId),
+      3,
+      500,
+    );
+
+    if (!markResult.alreadyUsed) {
+      await Transaction.create({
+        txHash: markResult.txHash,
+        type: 'redeem',
+        tokenId: payload.tokenId,
+        fromWallet: normalizedWallet,
+        toWallet: ethers.ZeroAddress,
+        price: 0,
+        timestamp: new Date(),
+        status: 'SUCCESS',
+      });
+    }
+
+    return {
+      tokenId: payload.tokenId,
+      isUsed: true,
+      usedAt: lockedTicket.usedAt as Date,
+      txHash: markResult.txHash,
+    };
+  } catch (error: any) {
+    await rollbackLock();
+
+    const placeholderTxHash = `pending_redeem_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    console.error('[ADMIN_ALERT_MARK_USED_FAILED] Relayer failed to mark ticket used after retries:', {
+      tokenId: payload.tokenId,
+      walletAddress: normalizedWallet,
+      error: error?.message || error,
+      timestamp: new Date().toISOString(),
+      placeholderTxHash,
+    });
+
+    await Transaction.create({
+      txHash: placeholderTxHash,
+      type: 'redeem',
+      tokenId: payload.tokenId,
+      fromWallet: normalizedWallet,
+      toWallet: ethers.ZeroAddress,
+      price: 0,
+      timestamp: new Date(),
+      status: 'FAILED',
+    });
+
+    throw createError('Failed to record redemption on-chain after retries', 502);
+  }
 }
 

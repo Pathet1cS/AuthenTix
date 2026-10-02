@@ -12,6 +12,8 @@ export const EVENT_TICKET_NFT_ABI = [
   'event TicketTransferred(uint256 indexed tokenId, address indexed from, address indexed to)',
   'function ownerOf(uint256 tokenId) external view returns (address)',
   'function resaleListings(uint256 tokenId) external view returns (address seller, uint256 price, bool isActive)',
+  'function markUsed(uint256 tokenId) external',
+  'event TicketUsed(uint256 indexed tokenId, uint256 indexed eventId)',
 ];
 
 export async function withRetry<T>(
@@ -128,6 +130,41 @@ export class BlockchainService {
       txHash: tx.hash,
       blockNumber: receipt.blockNumber,
     };
+  }
+
+  async ownerOfOnChain(tokenId: string): Promise<string> {
+    try {
+      const owner: string = await this.contract.ownerOf(tokenId);
+      return owner.toLowerCase();
+    } catch {
+      throw createError('Failed to query ticket owner on-chain', 502);
+    }
+  }
+
+  async markUsedOnChain(
+    tokenId: string,
+  ): Promise<{ txHash: string; blockNumber: number; alreadyUsed: boolean }> {
+    let tx;
+    try {
+      tx = await this.contract.markUsed(tokenId);
+    } catch (error: any) {
+      const reason = error?.reason ?? error?.shortMessage ?? error?.message ?? '';
+      // A retry can legitimately land here if a prior attempt's transaction
+      // actually confirmed after the caller had already timed out waiting for
+      // it — the contract's own double-redemption guard is proof the
+      // redemption already happened, not a new failure.
+      if (typeof reason === 'string' && reason.includes('Ticket already used')) {
+        return { txHash: '', blockNumber: 0, alreadyUsed: true };
+      }
+      throw createError('Failed to submit redemption transaction', 500);
+    }
+
+    const receipt = await tx.wait(1);
+    if (!receipt || receipt.status !== 1) {
+      throw createError('Transaction reverted on-chain', 500);
+    }
+
+    return { txHash: tx.hash, blockNumber: receipt.blockNumber, alreadyUsed: false };
   }
 
   async verifyListingCreatedOnChain(params: {

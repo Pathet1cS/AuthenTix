@@ -7,11 +7,15 @@ import {
   cancelResaleListingService,
   fulfillResalePurchaseService,
   getResaleMarketplaceService,
+  verifyTicketService,
 } from './tickets.service';
+import { VerifyTicketPayload } from './tickets.validation';
 import { Event } from '@/shared/models/event.model';
 import { Ticket } from '@/shared/models/ticket.model';
 import { Transaction } from '@/shared/models/transaction.model';
 import { blockchainService, withRetry } from '@/shared/services/blockchain.service';
+import { consumeNonce } from '@/shared/services/nonce.service';
+import { verifyWalletSignature } from '@/shared/utils/signature';
 import { ethers } from 'ethers';
 
 jest.mock('@/shared/services/blockchain.service', () => ({
@@ -20,8 +24,18 @@ jest.mock('@/shared/services/blockchain.service', () => ({
     verifyListingCreatedOnChain: jest.fn(),
     verifyListingCancelledOnChain: jest.fn(),
     verifyListingSoldOnChain: jest.fn(),
+    ownerOfOnChain: jest.fn(),
+    markUsedOnChain: jest.fn(),
   },
   withRetry: jest.fn(),
+}));
+
+jest.mock('@/shared/services/nonce.service', () => ({
+  consumeNonce: jest.fn(),
+}));
+
+jest.mock('@/shared/utils/signature', () => ({
+  verifyWalletSignature: jest.fn(),
 }));
 
 describe('Ticket Purchase Service', () => {
@@ -488,6 +502,183 @@ describe('Ticket Purchase Service', () => {
 
       const filtered = await getResaleMarketplaceService({ eventId: event1._id.toString() });
       expect(filtered.listings.length).toBe(2);
+    });
+  });
+
+  describe('verifyTicketService', () => {
+    const holderWallet = '0x4444444444444444444444444444444444444444';
+
+    function buildPayload(overrides: Partial<VerifyTicketPayload> = {}): VerifyTicketPayload {
+      return {
+        tokenId: '900',
+        walletAddress: holderWallet,
+        nonce: 'qr-nonce-1',
+        expiresAt: Math.floor((Date.now() + 10_000) / 1000),
+        signature: '0xsig',
+        ...overrides,
+      };
+    }
+
+    async function createTestTicket(overrides = {}) {
+      const event = await createTestEvent();
+      return Ticket.create({
+        tokenId: '900',
+        eventId: event._id,
+        ownerWallet: holderWallet,
+        tokenURI: 'ipfs://Qm900',
+        mintTxHash: '0xmint900',
+        blockNumber: 100,
+        isUsed: false,
+        ...overrides,
+      });
+    }
+
+    beforeEach(() => {
+      (consumeNonce as jest.Mock).mockResolvedValue(undefined);
+      (verifyWalletSignature as jest.Mock).mockResolvedValue(true);
+      (blockchainService.ownerOfOnChain as jest.Mock).mockResolvedValue(holderWallet);
+    });
+
+    it('should reject an expired QR payload', async () => {
+      await createTestTicket();
+      const payload = buildPayload({ expiresAt: Math.floor((Date.now() - 1000) / 1000) });
+
+      await expect(verifyTicketService(payload)).rejects.toMatchObject({
+        message: 'QR code has expired',
+        statusCode: 401,
+      });
+    });
+
+    it('should reject a QR payload signed too far in the future', async () => {
+      await createTestTicket();
+      const payload = buildPayload({ expiresAt: Math.floor((Date.now() + 60_000) / 1000) });
+
+      await expect(verifyTicketService(payload)).rejects.toMatchObject({
+        message: 'Invalid QR code timestamp',
+        statusCode: 401,
+      });
+    });
+
+    it('should reject a replayed nonce', async () => {
+      await createTestTicket();
+      (consumeNonce as jest.Mock).mockRejectedValue(
+        Object.assign(new Error('Nonce has already been used'), { statusCode: 401 }),
+      );
+
+      await expect(verifyTicketService(buildPayload())).rejects.toMatchObject({
+        message: 'Nonce has already been used',
+      });
+    });
+
+    it('should reject an invalid signature', async () => {
+      await createTestTicket();
+      (verifyWalletSignature as jest.Mock).mockResolvedValue(false);
+
+      await expect(verifyTicketService(buildPayload())).rejects.toMatchObject({
+        message: 'Invalid signature',
+        statusCode: 401,
+      });
+    });
+
+    it('should return 404 when the ticket does not exist', async () => {
+      await expect(verifyTicketService(buildPayload({ tokenId: 'missing' }))).rejects.toMatchObject({
+        message: 'Ticket not found',
+        statusCode: 404,
+      });
+    });
+
+    it('should return 409 when the ticket is already used (fast path)', async () => {
+      await createTestTicket({ isUsed: true, usedAt: new Date() });
+
+      await expect(verifyTicketService(buildPayload())).rejects.toMatchObject({
+        statusCode: 409,
+      });
+      expect(blockchainService.ownerOfOnChain).not.toHaveBeenCalled();
+    });
+
+    it('should return 409 on a concurrent double-scan race and not reach the chain', async () => {
+      await createTestTicket();
+      jest.spyOn(Ticket, 'findOneAndUpdate').mockResolvedValueOnce(null as any);
+
+      await expect(verifyTicketService(buildPayload())).rejects.toMatchObject({
+        statusCode: 409,
+      });
+      expect(blockchainService.ownerOfOnChain).not.toHaveBeenCalled();
+    });
+
+    it('should roll back and reject when the on-chain owner does not match', async () => {
+      await createTestTicket();
+      (blockchainService.ownerOfOnChain as jest.Mock).mockResolvedValue(
+        '0x9999999999999999999999999999999999999999',
+      );
+
+      await expect(verifyTicketService(buildPayload())).rejects.toMatchObject({
+        message: 'On-chain owner does not match ticket holder',
+        statusCode: 403,
+      });
+
+      const ticket = await Ticket.findOne({ tokenId: '900' });
+      expect(ticket?.isUsed).toBe(false);
+      expect(ticket?.usedAt).toBeNull();
+    });
+
+    it('should roll back, log a FAILED transaction, and reject when redemption is exhausted', async () => {
+      await createTestTicket();
+      (withRetry as jest.Mock).mockRejectedValue(new Error('RPC unavailable'));
+
+      await expect(verifyTicketService(buildPayload())).rejects.toMatchObject({
+        message: 'Failed to record redemption on-chain after retries',
+        statusCode: 502,
+      });
+
+      const ticket = await Ticket.findOne({ tokenId: '900' });
+      expect(ticket?.isUsed).toBe(false);
+      expect(ticket?.usedAt).toBeNull();
+
+      const failedTx = await Transaction.findOne({ tokenId: '900', status: 'FAILED' });
+      expect(failedTx).toBeTruthy();
+      expect(failedTx?.type).toBe('redeem');
+    });
+
+    it('should redeem the ticket, call markUsed on-chain, and log a SUCCESS transaction', async () => {
+      await createTestTicket();
+      (withRetry as jest.Mock).mockResolvedValue({
+        txHash: '0xredeemTxHash',
+        blockNumber: 555,
+        alreadyUsed: false,
+      });
+
+      const result = await verifyTicketService(buildPayload());
+
+      expect(result.tokenId).toBe('900');
+      expect(result.isUsed).toBe(true);
+      expect(result.txHash).toBe('0xredeemTxHash');
+
+      const ticket = await Ticket.findOne({ tokenId: '900' });
+      expect(ticket?.isUsed).toBe(true);
+      expect(ticket?.usedAt).toBeInstanceOf(Date);
+
+      const tx = await Transaction.findOne({ txHash: '0xredeemTxHash' });
+      expect(tx).toBeTruthy();
+      expect(tx?.type).toBe('redeem');
+      expect(tx?.status).toBe('SUCCESS');
+    });
+
+    it('should succeed without a duplicate transaction when markUsed reports alreadyUsed', async () => {
+      await createTestTicket();
+      (withRetry as jest.Mock).mockResolvedValue({
+        txHash: '',
+        blockNumber: 0,
+        alreadyUsed: true,
+      });
+
+      const result = await verifyTicketService(buildPayload());
+
+      expect(result.isUsed).toBe(true);
+      expect(await Transaction.countDocuments({ tokenId: '900' })).toBe(0);
+
+      const ticket = await Ticket.findOne({ tokenId: '900' });
+      expect(ticket?.isUsed).toBe(true);
     });
   });
 });

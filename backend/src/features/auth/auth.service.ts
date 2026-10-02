@@ -4,6 +4,8 @@ import { verifyWalletSignature } from '@/shared/utils/signature';
 import { getThirdwebUserEmail } from '@/shared/utils/thirdwebUser';
 import { signToken } from '@/shared/utils/jwt';
 import { createError } from '@/shared/utils/appError';
+import { isDuplicateKeyError } from '@/shared/utils/mongoErrors';
+import { consumeNonce } from '@/shared/services/nonce.service';
 import { LOGIN_STATEMENT, LoginRequest, serializeLoginPayload } from './auth.schema';
 
 const MAX_VALIDITY_MS = 5 * 60 * 1000;
@@ -13,19 +15,6 @@ export interface LoginResult {
   userId: string;
   walletAddress: string;
   token: string;
-}
-
-interface MongoDuplicateKeyError {
-  code: number;
-  keyPattern?: Record<string, unknown>;
-}
-
-function isDuplicateKeyError(err: unknown): err is MongoDuplicateKeyError {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    (err as { code?: unknown }).code === 11000
-  );
 }
 
 export async function login(request: LoginRequest): Promise<LoginResult> {
@@ -53,6 +42,16 @@ export async function login(request: LoginRequest): Promise<LoginResult> {
   if (payload.statement !== LOGIN_STATEMENT) {
     throw createError('Invalid login statement', 401);
   }
+
+  // Spent before the (billed) signature RPC path, same reasoning as the
+  // domain/statement checks above. Closes the replay window a captured
+  // payload+signature would otherwise have until expiresAt.
+  await consumeNonce({
+    scope: 'login',
+    nonce: payload.nonce,
+    walletAddress: payload.address.toLowerCase(),
+    expiresAt: new Date(expiresAt),
+  });
 
   // Sign over the re-serialised payload, never the raw request body, so that
   // key order and whitespace on the wire cannot affect verification.
