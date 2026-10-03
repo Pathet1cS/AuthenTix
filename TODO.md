@@ -117,7 +117,7 @@ AuthenTix/
     - **Step 5:** Verify ticket status is not already `isUsed`.
     - **Step 6:** Atomically update ticket status to `isUsed = true` and call `markUsed(tokenId)` on-chain.
 
-- [ ] **TASK-BE-09: Blockchain Event Listener & Recovery Engine**
+- [x] **TASK-BE-09: Blockchain Event Listener & Recovery Engine**
   - Implement standalone background listener service watching Optimism Sepolia logs:
     - `TicketMinted`
     - `TicketTransferred`

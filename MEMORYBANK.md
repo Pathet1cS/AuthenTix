@@ -2,15 +2,15 @@
 
 > **Application:** Web3 Decentralized E-Ticketing Platform (AuthenTix)  
 > **Current Phase:** Phase 2 — Backend API & Event Listener (`backend/`)  
-> **Last Updated:** 2026-09-28
+> **Last Updated:** 2026-10-03
 
 ---
 
 ## 🎯 Current Status / Active Task
 
 - **Focus:** Phase 2 - Backend API (`backend/`) — **IN PROGRESS**
-- **Status:** TASK-BE-01 through TASK-BE-08 completed (Server Setup, Database Models, Authentication, IPFS Metadata Upload, Event Management API, Ticket Purchase & Relayer Minting, Ticket Resale API & User Ticket Lifecycle, Dynamic QR Verification Engine). 336 backend tests passing across 34 suites.
-- **Next Focus:** TASK-BE-09 (Blockchain Event Listener & Recovery Engine).
+- **Status:** TASK-BE-01 through TASK-BE-09 completed (Server Setup, Database Models, Authentication, IPFS Metadata Upload, Event Management API, Ticket Purchase & Relayer Minting, Ticket Resale API & User Ticket Lifecycle, Dynamic QR Verification Engine, Blockchain Event Listener & Recovery Engine).
+- **Next Focus:** TASK-BE-10 (Rate Limiting & Security Hardening).
 
 ---
 
@@ -40,6 +40,7 @@
   - **Closed a TASK-BE-03 gap:** `auth.service.ts`'s `login()` validated payload expiry/domain/statement/signature but never persisted the SIWE `nonce`, so a captured login payload was replayable until its 5-minute expiry. `login()` now calls `consumeNonce({ scope: 'login', ... })` right before the signature check, closing PRD SR-05/SR-06 for both flows with one store.
   - `Transaction.type` enum gained `'redeem'`. `BlockchainService` gained `ownerOfOnChain` (read) and `markUsedOnChain` (write, idempotent on-chain-already-used detection); `EVENT_TICKET_NFT_ABI` gained `markUsed` and the two-arg `TicketUsed(tokenId, eventId)` event (the deployed contract's real signature, which differs from the PRD's simplified single-arg prose).
   - 336 backend tests passing across 34 suites (up from 303/31).
+- [x] **TASK-BE-09: Blockchain Event Listener & Recovery Engine:** Implemented a standalone background process (`src/features/listener/`, run via `npm run listener`) independent from the Express API. `ListenerService` connects to Optimism Sepolia (WebSocket preferred via `WS_RPC_URL`, HTTP `JsonRpcProvider` fallback), and on startup replays all historical `TicketMinted`/`TicketTransferred`/`TicketUsed` logs from the persisted `SyncState.lastProcessedBlock` checkpoint (or `CONTRACT_DEPLOYMENT_BLOCK` on a fresh database) up to the current chain head, in `LISTENER_BATCH_SIZE`-sized block ranges, sorted chronologically by `(blockNumber, logIndex)`. The checkpoint only advances after a batch fully succeeds, so a crash mid-batch safely retries that range on restart — all three handlers (`ticketMinted`, `ticketTransferred`, `ticketUsed`) are idempotent (keyed off `mintTxHash` / `Transaction.txHash` / existing `isUsed` state) to make replay safe. After catch-up, it subscribes to the same three events live via `contract.on(...)`, throttling `SyncState` writes to once per 30s while never regressing the checkpoint. `TicketTransferred` handling is interoperable with the BE-07 resale API: a transfer whose `txHash` already has a `type: 'resell'` Transaction (written synchronously by `POST /api/tickets/resell/purchase`) is recognized as already-synchronized and skipped rather than overwritten with `type: 'transfer'`. Added `'redeem'` to `Transaction.type` and `TicketUsed` to `EVENT_TICKET_NFT_ABI` (both previously absent since no code needed them yet). New env vars: `WS_RPC_URL` (optional), `CONTRACT_DEPLOYMENT_BLOCK` (required), `LISTENER_BATCH_SIZE`, `LISTENER_CHECKPOINT_INTERVAL`. Operational runbook at `backend/README-LISTENER.md`. 334 backend tests passing across 35 suites (58 new tests added for this task, plus a `multer` dependency gap fixed via `npm install` that was blocking 6 pre-existing suites from running at all).
 
 ---
 
@@ -54,7 +55,7 @@
 - [x] Implement Ticket Purchase & Relayer Minting service with retry logic.
 - [x] Implement Ticket Resale API & Marketplace Lifecycle.
 - [x] Implement Dynamic 30s QR Verification Engine (`POST /api/tickets/verify`).
-- [ ] Implement Blockchain Event Listener & catch-up block sync engine.
+- [x] Implement Blockchain Event Listener & catch-up block sync engine.
 
 ---
 
