@@ -27,3 +27,36 @@ export const resaleMarketplaceQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
   limit: z.coerce.number().int().min(1).max(50).optional().default(20),
 });
+
+// FR-07 QR payload: expiresAt is a Unix-seconds number, unlike the login
+// payload's ISO-string expiresAt.
+export const verifyTicketSchema = z
+  .object({
+    tokenId: z.string().min(1, 'Token ID is required'),
+    walletAddress: z
+      .string()
+      .regex(/^0x[a-fA-F0-9]{40}$/, 'walletAddress must be a 0x-prefixed 20-byte hex string'),
+    nonce: z.string().min(1, 'nonce is required').max(128, 'nonce must be at most 128 characters'),
+    expiresAt: z.number().int().positive('expiresAt must be a positive unix timestamp'),
+    signature: z
+      .string()
+      .regex(/^0x([a-fA-F0-9]{2})+$/, 'signature must be a 0x-prefixed even-length hex string')
+      .max(10000, 'signature must be at most 10000 characters'),
+  })
+  .strict();
+
+export type VerifyTicketPayload = z.infer<typeof verifyTicketSchema>;
+
+/**
+ * Produces the exact string the buyer's wallet signs. Fixed key order, same
+ * rationale as `serializeLoginPayload`: sign what we re-serialise, never the
+ * raw request body.
+ */
+export function serializeQrPayload(payload: VerifyTicketPayload): string {
+  return JSON.stringify({
+    tokenId: payload.tokenId,
+    walletAddress: payload.walletAddress,
+    nonce: payload.nonce,
+    expiresAt: payload.expiresAt,
+  });
+}

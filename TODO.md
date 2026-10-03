@@ -108,7 +108,7 @@ AuthenTix/
   - `POST /api/tickets/resell/purchase`: Fulfill secondary purchase, transfer ownership, verify `ListingSold` event, and log `resell` transaction.
   - `GET /api/tickets/resale`: Public secondary marketplace catalog with sorting and pagination.
 
-- [ ] **TASK-BE-08: Dynamic QR & Verification Engine**
+- [x] **TASK-BE-08: Dynamic QR & Verification Engine**
   - Implement verification logic for `POST /api/tickets/verify`:
     - **Step 1:** Verify cryptographic signature using owner's wallet address.
     - **Step 2:** Verify QR code timestamp (must not be expired, < 30 seconds validity).
