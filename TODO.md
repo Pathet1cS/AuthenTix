@@ -126,7 +126,7 @@ AuthenTix/
   - Replicate all on-chain events into MongoDB cache.
   - Implement startup catch-up & recovery process: query missing logs from `lastProcessedBlock` up to `latestBlock` on startup.
 
-- [ ] **TASK-BE-10: Rate Limiting & Security Hardening**
+- [x] **TASK-BE-10: Rate Limiting & Security Hardening**
   - Implement rate limiting middleware (100 requests per minute per IP/user).
   - Implement CORS, Helmet, and input validation for all endpoints.
 
