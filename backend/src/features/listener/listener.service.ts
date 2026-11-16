@@ -164,17 +164,17 @@ export class ListenerService {
     console.log('[Listener] Starting real-time event subscription...');
 
     this.contract.on('TicketMinted', async (...args: unknown[]) => {
-      const rawLog = args[args.length - 1] as ethers.EventLog;
+      const rawLog = (args[args.length - 1] as ethers.ContractEventPayload).log as ethers.EventLog;
       await this.handleLiveEvent(rawLog);
     });
 
     this.contract.on('TicketTransferred', async (...args: unknown[]) => {
-      const rawLog = args[args.length - 1] as ethers.EventLog;
+      const rawLog = (args[args.length - 1] as ethers.ContractEventPayload).log as ethers.EventLog;
       await this.handleLiveEvent(rawLog);
     });
 
     this.contract.on('TicketUsed', async (...args: unknown[]) => {
-      const rawLog = args[args.length - 1] as ethers.EventLog;
+      const rawLog = (args[args.length - 1] as ethers.ContractEventPayload).log as ethers.EventLog;
       await this.handleLiveEvent(rawLog);
     });
 
@@ -235,8 +235,21 @@ export class ListenerService {
       await this.contract.removeAllListeners();
     }
 
+    if (this.provider) {
+      // Drop provider-level subscriptions and let an in-flight eth_newFilter settle
+      // first; otherwise destroy() rejects it as an unhandled "cancelled request".
+      await this.provider.removeAllListeners();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
     if (this.provider && 'destroy' in this.provider) {
-      await (this.provider as ethers.WebSocketProvider).destroy();
+      // destroy() throws when it cancels a still-pending subscription request
+      // (e.g. an in-flight eth_newFilter); the provider is torn down either way.
+      try {
+        await (this.provider as ethers.WebSocketProvider).destroy();
+      } catch (error) {
+        console.warn('[Listener] Provider destroy reported:', (error as Error)?.message);
+      }
     }
 
     this.isListening = false;
