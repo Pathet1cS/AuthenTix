@@ -27,6 +27,9 @@ export class ListenerService {
     this.connectProvider();
     await this.catchUpFromLastCheckpoint();
     await this.subscribeToEvents();
+    // Blocks mined while the first catch-up ran (or before subscribing) were
+    // seen by neither path; replay that gap now (handlers are idempotent).
+    await this.catchUpFromLastCheckpoint();
 
     console.log('[Listener] Service is now running and listening for events.');
   }
@@ -62,19 +65,23 @@ export class ListenerService {
     console.log('[Listener] Starting catch-up from last checkpoint...');
 
     const syncState = await SyncState.findOne({});
-    const fromBlock = syncState?.lastProcessedBlock ?? env.CONTRACT_DEPLOYMENT_BLOCK;
+    // A checkpoint is the last block fully processed; the deployment block has
+    // not been processed yet, so it is included.
+    const firstBlock = syncState
+      ? syncState.lastProcessedBlock + 1
+      : env.CONTRACT_DEPLOYMENT_BLOCK;
     const toBlock = await this.provider.getBlockNumber();
 
-    console.log(`[Listener] Catch-up range: block ${fromBlock} to ${toBlock}`);
+    console.log(`[Listener] Catch-up range: block ${firstBlock} to ${toBlock}`);
 
-    if (fromBlock >= toBlock) {
+    if (firstBlock > toBlock) {
       console.log('[Listener] Already up-to-date, no catch-up needed.');
       return;
     }
 
     const batchSize = env.LISTENER_BATCH_SIZE;
 
-    for (let start = fromBlock + 1; start <= toBlock; start += batchSize) {
+    for (let start = firstBlock; start <= toBlock; start += batchSize) {
       const end = Math.min(start + batchSize - 1, toBlock);
 
       console.log(`[Listener] Querying logs from block ${start} to ${end}...`);
@@ -181,6 +188,8 @@ export class ListenerService {
       await this.processEvent(log);
       await this.updateCheckpointThrottled(log.blockNumber);
     } catch (error) {
+      // Hold the checkpoint below this block so a restart replays it.
+      this.lowestFailedBlock = Math.min(this.lowestFailedBlock, log.blockNumber);
       console.error(
         `[Listener] Real-time handler error for ${log.eventName} (block=${log.blockNumber}, txHash=${log.transactionHash}):`,
         error,
@@ -190,7 +199,8 @@ export class ListenerService {
 
   private lastCheckpointUpdateAt = 0;
   private highestCheckpointedBlock = 0;
-  private readonly checkpointIntervalMs = 30_000;
+  private lowestFailedBlock = Infinity;
+  private readonly checkpointIntervalMs = 30_000; // shortcut: LISTENER_CHECKPOINT_INTERVAL env (documented in blocks) is unused, wire it up if tuning is needed
 
   /**
    * Writes SyncState.lastProcessedBlock at most once per checkpointIntervalMs,
@@ -207,13 +217,15 @@ export class ListenerService {
       return;
     }
 
+    const checkpoint = Math.min(this.highestCheckpointedBlock, this.lowestFailedBlock - 1);
+    // $max: never move the persisted checkpoint backwards.
     await SyncState.findOneAndUpdate(
       {},
-      { lastProcessedBlock: this.highestCheckpointedBlock },
+      { $max: { lastProcessedBlock: checkpoint } },
       { upsert: true },
     );
     this.lastCheckpointUpdateAt = now;
-    console.log(`[Listener] Checkpoint updated to block ${this.highestCheckpointedBlock}`);
+    console.log(`[Listener] Checkpoint updated to block ${checkpoint}`);
   }
 
   async stop(): Promise<void> {

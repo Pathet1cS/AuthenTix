@@ -14,7 +14,6 @@ export const EVENT_TICKET_NFT_ABI = [
   'function ownerOf(uint256 tokenId) external view returns (address)',
   'function resaleListings(uint256 tokenId) external view returns (address seller, uint256 price, bool isActive)',
   'function markUsed(uint256 tokenId) external',
-  'event TicketUsed(uint256 indexed tokenId, uint256 indexed eventId)',
 ];
 
 export async function withRetry<T>(

@@ -233,6 +233,60 @@ describe('ListenerService.catchUpFromLastCheckpoint (private, exercised via star
   });
 });
 
+describe('ListenerService review fixes', () => {
+  function build(head: number | number[]) {
+    const service = new ListenerService();
+    const heads = Array.isArray(head) ? [...head] : [head];
+    const mockContract = {
+      queryFilter: jest.fn().mockResolvedValue([]),
+      removeAllListeners: jest.fn(),
+      on: jest.fn(),
+    };
+    const mockProvider = {
+      getBlockNumber: jest.fn().mockImplementation(async () => (heads.length > 1 ? heads.shift() : heads[0])),
+      getBlock: jest.fn().mockResolvedValue({ timestamp: 1696118400 }),
+    };
+    (service as any).contract = mockContract;
+    (service as any).provider = mockProvider;
+    (service as any).connectProvider = jest.fn();
+    return { service, mockContract };
+  }
+
+  it('includes CONTRACT_DEPLOYMENT_BLOCK itself on a fresh database', async () => {
+    const { env } = await import('@/config/env');
+    const dep = env.CONTRACT_DEPLOYMENT_BLOCK;
+    const { service, mockContract } = build(dep);
+    await service.start();
+    expect(mockContract.queryFilter).toHaveBeenCalledWith('TicketMinted', dep, dep);
+  });
+
+  it('replays blocks mined during catch-up after subscribing', async () => {
+    await SyncState.create({ lastProcessedBlock: 10 });
+    const { service, mockContract } = build([15, 18]);
+    await service.start();
+    expect(mockContract.queryFilter).toHaveBeenCalledWith('TicketMinted', 11, 15);
+    expect(mockContract.queryFilter).toHaveBeenCalledWith('TicketMinted', 16, 18);
+  });
+
+  it('does not checkpoint past a block whose live event failed', async () => {
+    await SyncState.create({ lastProcessedBlock: 200 });
+    const { service } = build(200);
+    await service.start();
+    const s = service as any;
+    // Failed event at block 201 (no ticket in DB -> handler throws), then a later success.
+    await s.handleLiveEvent(
+      fakeEventLog({ eventName: 'TicketUsed', args: { tokenId: 99n, eventId: 1n }, blockNumber: 201, transactionHash: '0xfail', logIndex: 0 }),
+    );
+    s.processEvent = jest.fn().mockResolvedValue(undefined);
+    await s.handleLiveEvent(
+      fakeEventLog({ eventName: 'TicketUsed', args: { tokenId: 1n, eventId: 1n }, blockNumber: 205, transactionHash: '0xok', logIndex: 0 }),
+    );
+    s.lastCheckpointUpdateAt = 0;
+    await s.updateCheckpointThrottled(205);
+    expect((await SyncState.findOne({}))?.lastProcessedBlock).toBe(200);
+  });
+});
+
 describe('ListenerService.subscribeToEvents (private, exercised via start())', () => {
   it('registers listeners for all three event types', async () => {
     await SyncState.create({ lastProcessedBlock: 200 });
