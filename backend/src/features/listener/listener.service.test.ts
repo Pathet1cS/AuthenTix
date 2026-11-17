@@ -367,7 +367,7 @@ describe('ListenerService.subscribeToEvents (private, exercised via start())', (
 
     // Real contract.on callbacks receive (...decodedArgs, eventLogObject);
     // simulate that shape with the eventLogObject as the final arg.
-    await mintedCallback!(1n, 1n, '0xAlice', 'ipfs://live', liveLog);
+    await mintedCallback!(1n, 1n, '0xAlice', 'ipfs://live', { log: liveLog });
 
     const ticket = await Ticket.findOne({ tokenId: '1' });
     expect(ticket?.ownerWallet).toBe('0xalice');
@@ -414,7 +414,7 @@ describe('ListenerService.subscribeToEvents (private, exercised via start())', (
 
     // Should not throw/reject -- errors are caught and logged internally.
     await expect(
-      transferredCallback!(999n, '0xAlice', '0xBob', liveLog),
+      transferredCallback!(999n, '0xAlice', '0xBob', { log: liveLog }),
     ).resolves.toBeUndefined();
 
     // Checkpoint should not have advanced past the pre-seeded value since
@@ -471,6 +471,7 @@ describe('ListenerService end-to-end restart & recovery scenario', () => {
     };
     const mockProviderRun1 = {
       getBlockNumber: jest.fn().mockResolvedValue(25),
+      removeAllListeners: jest.fn().mockResolvedValue(undefined),
       getBlock: jest.fn().mockResolvedValue({ timestamp: 1696118400 }),
     };
 
@@ -516,6 +517,7 @@ describe('ListenerService end-to-end restart & recovery scenario', () => {
     };
     const mockProviderRun2 = {
       getBlockNumber: jest.fn().mockResolvedValue(35),
+      removeAllListeners: jest.fn().mockResolvedValue(undefined),
       getBlock: jest.fn().mockResolvedValue({ timestamp: 1696200000 }),
     };
 
@@ -556,6 +558,7 @@ describe('ListenerService.stop', () => {
       removeAllListeners: jest.fn().mockResolvedValue(undefined),
     };
     const mockProvider = {
+      removeAllListeners: jest.fn().mockResolvedValue(undefined),
       destroy: jest.fn().mockResolvedValue(undefined),
     };
 
