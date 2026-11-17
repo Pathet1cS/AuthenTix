@@ -1,3 +1,15 @@
+// Mock env so this suite does not depend on a local .env (the real env.ts calls
+// process.exit(1) when vars are missing, which aborts the whole Jest run).
+jest.mock('@/config/env', () => ({
+  env: {
+    RPC_URL: 'http://127.0.0.1:8545',
+    CONTRACT_ADDRESS: '0x1111111111111111111111111111111111111111',
+    CONTRACT_DEPLOYMENT_BLOCK: 14325678,
+    LISTENER_BATCH_SIZE: 1000,
+    LISTENER_CHECKPOINT_INTERVAL: 10,
+  },
+}));
+
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { ethers } from 'ethers';
@@ -52,7 +64,7 @@ describe('ListenerService.catchUpFromLastCheckpoint (private, exercised via star
   it('replays historical events in chronological order and advances the checkpoint', async () => {
     // Seed a checkpoint below the mock events' block numbers so catch-up
     // actually has a range to process (CONTRACT_DEPLOYMENT_BLOCK in the test
-    // .env is a large real-world value that would otherwise make fromBlock >= toBlock).
+    // env mock is a large real-world value that would otherwise make fromBlock >= toBlock).
     await SyncState.create({ lastProcessedBlock: 10 });
 
     const eventDoc = await Event.create({
@@ -226,7 +238,7 @@ describe('ListenerService.catchUpFromLastCheckpoint (private, exercised via star
 
     await service.start();
 
-    // env.CONTRACT_DEPLOYMENT_BLOCK is 14325678 in the test .env, which is
+    // env.CONTRACT_DEPLOYMENT_BLOCK is mocked as 14325678, which is
     // far above the mocked current block (5), so no catch-up range exists
     // and queryFilter should never be called.
     expect(mockContract.queryFilter).not.toHaveBeenCalled();
