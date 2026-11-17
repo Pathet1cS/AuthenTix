@@ -39,7 +39,9 @@ export async function exchangeLogin(args: {
   const body = await res.json().catch(() => null);
   const token = body?.data?.token;
   if (!res.ok || body?.success !== true || typeof token !== 'string') {
-    throw new Error(body?.error ?? `Login failed (HTTP ${res.status})`);
+    // App errors send `error` as a string; the rate limiter sends `{ message }`.
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message;
+    throw new Error(typeof message === 'string' ? message : `Login failed (HTTP ${res.status})`);
   }
   return token;
 }

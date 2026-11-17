@@ -53,6 +53,18 @@ test('surfaces backend error message', async () => {
   );
 });
 
+test('surfaces the rate limiter message (error is an object)', async () => {
+  // Shape sent by express-rate-limit in backend/src/app.ts.
+  const fetchFn = respond(
+    429,
+    JSON.stringify({ success: false, error: { message: 'Too many requests, please try again later.' } }),
+  );
+  await assert.rejects(
+    exchangeLogin({ account: fakeAccount().account, email: 'a@b.c', domain: 'd', apiUrl: 'http://api', fetchFn }),
+    { message: 'Too many requests, please try again later.' },
+  );
+});
+
 test('falls back to HTTP status when body has no error', async () => {
   const fetchFn = respond(429, 'Too many requests');
   await assert.rejects(
