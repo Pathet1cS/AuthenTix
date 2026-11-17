@@ -2,7 +2,7 @@
 
 > **Application:** Web3 Decentralized E-Ticketing Platform (AuthenTix)  
 > **Current Phase:** Phase 2 — Backend API & Event Listener (`backend/`)  
-> **Last Updated:** 2026-11-16
+> **Last Updated:** 2026-11-17
 
 ---
 
@@ -11,7 +11,7 @@
 - **Open audit findings:** a whole-repo audit on 2026-11-16 found 8 must-fix and 11 smaller issues (AUDIT-08 fixed 2026-11-17). See **🔍 Audit Findings** below. Fix AUDIT-01 to AUDIT-07 next. BE-09 and BE-10 were merged first, so some audit file/line references may have shifted.
 - **Focus:** Phase 2 - Backend API (`backend/`) — **IN PROGRESS**
 - **Status:** TASK-BE-01 through TASK-BE-10 completed (Server Setup, Database Models, Authentication, IPFS Metadata Upload, Event Management API, Ticket Purchase & Relayer Minting, Ticket Resale API & User Ticket Lifecycle, Dynamic QR Verification Engine, Blockchain Event Listener & Recovery Engine, Rate Limiting & Security Hardening via `app.ts` middleware). 336 backend tests passing across 34 suites.
-- **Next Focus:** audit fixes (AUDIT-01 to AUDIT-07), then Phase 3 frontend integration (TASK-FE-02).
+- **Next Focus:** TASK-FE-02 (Thirdweb wallet integration), then TASK-DO-01..03. Open backend items: audit fixes (AUDIT-01 to AUDIT-07), direct-transfer gap and mint race (see "Known Gaps" below).
 
 ---
 
@@ -42,6 +42,19 @@
   - `Transaction.type` enum gained `'redeem'`. `BlockchainService` gained `ownerOfOnChain` (read) and `markUsedOnChain` (write, idempotent on-chain-already-used detection); `EVENT_TICKET_NFT_ABI` gained `markUsed` and the two-arg `TicketUsed(tokenId, eventId)` event (the deployed contract's real signature, which differs from the PRD's simplified single-arg prose).
   - 336 backend tests passing across 34 suites (up from 303/31).
 - [x] **TASK-BE-09: Blockchain Event Listener & Recovery Engine:** Implemented a standalone background process (`src/features/listener/`, run via `npm run listener`) independent from the Express API. `ListenerService` connects to Optimism Sepolia (WebSocket preferred via `WS_RPC_URL`, HTTP `JsonRpcProvider` fallback), and on startup replays all historical `TicketMinted`/`TicketTransferred`/`TicketUsed` logs from the persisted `SyncState.lastProcessedBlock` checkpoint (or `CONTRACT_DEPLOYMENT_BLOCK` on a fresh database) up to the current chain head, in `LISTENER_BATCH_SIZE`-sized block ranges, sorted chronologically by `(blockNumber, logIndex)`. The checkpoint only advances after a batch fully succeeds, so a crash mid-batch safely retries that range on restart — all three handlers (`ticketMinted`, `ticketTransferred`, `ticketUsed`) are idempotent (keyed off `mintTxHash` / `Transaction.txHash` / existing `isUsed` state) to make replay safe. After catch-up, it subscribes to the same three events live via `contract.on(...)`, throttling `SyncState` writes to once per 30s while never regressing the checkpoint. `TicketTransferred` handling is interoperable with the BE-07 resale API: a transfer whose `txHash` already has a `type: 'resell'` Transaction (written synchronously by `POST /api/tickets/resell/purchase`) is recognized as already-synchronized and skipped rather than overwritten with `type: 'transfer'`. Added `'redeem'` to `Transaction.type` and `TicketUsed` to `EVENT_TICKET_NFT_ABI` (both previously absent since no code needed them yet). New env vars: `WS_RPC_URL` (optional), `CONTRACT_DEPLOYMENT_BLOCK` (required), `LISTENER_BATCH_SIZE`, `LISTENER_CHECKPOINT_INTERVAL`. Operational runbook at `backend/README-LISTENER.md`. 334 backend tests passing across 35 suites (58 new tests added for this task, plus a `multer` dependency gap fixed via `npm install` that was blocking 6 pre-existing suites from running at all).
+
+- [x] **TASK-BE-10: Rate Limiting & Security Hardening (PR #13):** Global `express-rate-limit` (100 req/min/IP, `limit` option, standard `RateLimit-*` headers, JSON error body) mounted after Helmet/CORS/`express.json()`. Review fixes: import hoisted to top of `app.ts`, deprecated `max` renamed to `limit`. Note: `trust proxy` is NOT set; behind a reverse proxy/Docker ingress add `app.set('trust proxy', 1)` or all clients share one IP and one limit.
+- [x] **TASK-BE-09 review fixes (PR #12 follow-up):** (1) fresh DB catch-up now starts AT `CONTRACT_DEPLOYMENT_BLOCK` (previously skipped it); (2) catch-up runs a second time after subscribing, closing the gap for blocks mined during the first pass; (3) the live checkpoint is held below the lowest failed block and written with `$max`, so a restart retries failed events and the checkpoint never moves backwards; (4) removed a duplicate `TicketUsed` ABI line left by the BE-08 overlap.
+- [x] **Local-chain E2E suite (branch `feature/e2e-local-chain`):** `npm run test:e2e` in `backend/` (config `backend/e2e/jest.e2e.config.js`, separate from `npm test`). Spawns a Hardhat node (port 8546, `contracts/` artifacts must be compiled), deploys `EventTicketNFT`, uses in-memory MongoDB, real Express app + `ListenerService`; only Pinata (`@/shared/utils/ipfs`) is mocked and JWTs are minted directly. Covers: event create -> on-chain register, purchase (no double quota decrement), resale list+buy, QR verify -> `markUsed`, and listener stop/restart recovery (only missing blocks queried, checkpoint = head). 6/6 passing.
+  - **Bug found & fixed (listener):** live `contract.on` callbacks receive a `ContractEventPayload` (the log is at `payload.log`), not an `EventLog`. The listener read `transactionHash`/`blockNumber` from the wrong object, so live events had an undefined `txHash` ("txHash required" on transfers, double quota decrement on mints). Mocked unit tests hid this because their fakes used the wrong shape; fakes now pass `{ log }`.
+  - **Bug found & fixed (listener):** `stop()` on the HTTP provider surfaced an unhandled "cancelled request (eth_newFilter)" from `destroy()`. It now calls `provider.removeAllListeners()`, waits 100ms, and wraps `destroy()` in try/catch.
+  - **Test gotchas:** `provider.getBlockNumber()` is cached by ethers after `tx.wait()`; use raw `eth_blockNumber` for chain-head asserts. `POST /api/tickets/resell` returns 200 (not 201). Backend tests need a local `.env` (gitignored; copy values from `.env.example` with `JWT_SECRET` >= 32 chars) or env suites exit with "Missing or invalid environment variables".
+
+### Known Gaps (found by E2E, NOT yet fixed)
+- **Direct wallet-to-wallet transfers are invisible to the listener:** `EventTicketNFT` emits `TicketTransferred` only on mint and `buyResoldTicket`; a plain ERC721 `transferFrom` emits only the standard `Transfer`, so MongoDB keeps the old `ownerWallet`. `/api/tickets/verify` is unaffected (it reads `ownerOf` on-chain). Fix options: listen to ERC721 `Transfer`, or override `_update` in the contract to emit `TicketTransferred`.
+- **Possible purchase/listener race:** both `purchaseTicketService` and the listener's mint handler decrement `remainingQuota`; the only guard is "ticket already exists with same `mintTxHash`". If the listener sees the mint before the API's `Ticket.create`, quota is decremented twice and the API's create can fail (surfacing as a failed mint). Not triggered in the E2E run (timing dependent). Prefer a single owner of the quota decrement.
+- **`LISTENER_CHECKPOINT_INTERVAL` is unused:** defined in env (documented as blocks) but the service hardcodes a 30s checkpoint throttle.
+- **Not covered:** WebSocket provider path, reorg handling, live Optimism Sepolia RPC. Mint handler is non-atomic (a crash between ticket upsert and quota decrement skips the decrement on retry).
 
 ---
 
@@ -166,6 +179,8 @@ Whole-repo audit at commit `da46902`. Found by reading the code; nothing below i
 - [x] Implement Ticket Resale API & Marketplace Lifecycle.
 - [x] Implement Dynamic 30s QR Verification Engine (`POST /api/tickets/verify`).
 - [x] Implement Blockchain Event Listener & catch-up block sync engine.
+- [x] Implement Rate Limiting & Security Hardening.
+- [x] Local-chain end-to-end test suite (Hardhat).
 
 ---
 
