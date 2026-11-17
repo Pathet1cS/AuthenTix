@@ -139,7 +139,7 @@ AuthenTix/
   - Establish cohesive color palette, modern typography, dark mode options, and glassmorphism styling.
   - Set up component library (Buttons, Cards, Modals, Badges, Toast Notifications).
 
-- [ ] **TASK-FE-02: Thirdweb SDK & Embedded Wallet Integration**
+- [x] **TASK-FE-02: Thirdweb SDK & Embedded Wallet Integration**
   - Configure `ThirdwebProvider` with Optimism Sepolia testnet setup.
   - Implement Embedded Wallet authentication component (Email & Google OAuth login without raw private keys).
   - Handle session state and JWT storage.
