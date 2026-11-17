@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "tsc && tsc-alias",
     "start": "node dist/server.js",
     "listener": "tsx src/features/listener/index.ts",
     "listener:watch": "tsx watch src/features/listener/index.ts",
@@ -39,6 +39,7 @@
     "mongodb-memory-server": "^11.2.0",
     "supertest": "^7.0.0",
     "ts-jest": "^29.1.5",
+    "tsc-alias": "^1.9.10",
     "tsx": "^4.15.7",
     "typescript": "^5.4.5"
   }

@@ -8,9 +8,10 @@
 
 ## 🎯 Current Status / Active Task
 
+- **Open audit findings:** a whole-repo audit on 2026-11-16 found 8 must-fix and 11 smaller issues (AUDIT-08 fixed 2026-11-17). See **🔍 Audit Findings** below. Fix AUDIT-01 to AUDIT-07 next. BE-09 and BE-10 were merged first, so some audit file/line references may have shifted.
 - **Focus:** Phase 2 - Backend API (`backend/`) — **IN PROGRESS**
-- **Status:** TASK-BE-01 through TASK-BE-09 completed (Server Setup, Database Models, Authentication, IPFS Metadata Upload, Event Management API, Ticket Purchase & Relayer Minting, Ticket Resale API & User Ticket Lifecycle, Dynamic QR Verification Engine, Blockchain Event Listener & Recovery Engine). 336 backend tests passing across 34 suites.
-- **Next Focus:** TASK-FE-02 (Thirdweb wallet integration), then TASK-DO-01..03. Open backend items: direct-transfer gap and mint race (see "Known Gaps" below).
+- **Status:** TASK-BE-01 through TASK-BE-10 completed (Server Setup, Database Models, Authentication, IPFS Metadata Upload, Event Management API, Ticket Purchase & Relayer Minting, Ticket Resale API & User Ticket Lifecycle, Dynamic QR Verification Engine, Blockchain Event Listener & Recovery Engine, Rate Limiting & Security Hardening via `app.ts` middleware). 336 backend tests passing across 34 suites.
+- **Next Focus:** TASK-FE-02 (Thirdweb wallet integration), then TASK-DO-01..03. Open backend items: audit fixes (AUDIT-01 to AUDIT-07), direct-transfer gap and mint race (see "Known Gaps" below).
 
 ---
 
@@ -57,9 +58,118 @@
 
 ---
 
+## 🔍 Audit Findings (2026-11-16) — all OPEN
+
+Whole-repo audit at commit `da46902`. Found by reading the code; nothing below is fixed yet. All 336 backend tests and 13 contract tests pass, because no test covers these cases. Each fix needs one test that fails without it. Mark an item `[x]` when it is fixed and tested.
+
+**Order of work:**
+- AUDIT-02, AUDIT-10 and AUDIT-15 change the contract. Do them together: one redeploy, then update `CONTRACT_ADDRESS`.
+- AUDIT-16 first, then AUDIT-03 goes into the new shared helper (one place, not three).
+- AUDIT-06 before AUDIT-05: both touch how `BlockchainService` sends transactions.
+- The rest are independent.
+
+### Must fix
+
+- [ ] **AUDIT-01 — Tickets are free and unlimited.** `backend/src/features/tickets/tickets.service.ts` `purchaseTicketService` (L16-58).
+  - Problem: no payment step (PRD FR-04 step 2 "Payment succeeds") and no limit per wallet. A logged-in user can loop `POST /api/tickets/purchase`, take every seat for free and burn relayer gas.
+  - Fix: before the quota decrement, count `Ticket` rows for `{ eventId, ownerWallet }` and reject above a small limit with 400. Real payment is a product decision for the human owner: ask before building it. Until then, document that payment is simulated.
+
+- [ ] **AUDIT-02 — Resale price cap can be bypassed by a direct transfer.** `contracts/src/EventTicketNFT.sol`.
+  - Problem: standard ERC-721 `transferFrom` / `safeTransferFrom` are open, so a scalper takes payment off-platform and transfers the ticket, skipping `maxResalePrice` and `saleDeadline` (breaks PRD FR-06).
+  - Fix (OpenZeppelin 5.6.1 is installed): override `_update(address to, uint256 tokenId, address auth)` with `require(auth == address(0), "Use marketplace"); return super._update(to, tokenId, auth);`. `_safeMint` and the internal `_transfer` used by `buyResoldTicket` pass `address(0)`; public transfers pass the caller. Add a test: direct `transferFrom` by the owner reverts; mint and `buyResoldTicket` still work.
+
+- [ ] **AUDIT-03 — Resale endpoints accept event logs from any contract.** `backend/src/shared/services/blockchain.service.ts` L170-300 (`verifyListingCreatedOnChain`, `verifyListingCancelledOnChain`, `verifyListingSoldOnChain`).
+  - Problem: logs are parsed by topic only; `log.address` is never checked. An attacker deploys a contract that emits `ListingSold(tokenId, x, attacker, price)`, sends that tx hash to `POST /api/tickets/resell/purchase`, and MongoDB makes them the owner of a listed ticket. The gate check uses on-chain `ownerOf`, so entry is safe, but the database is corrupted.
+  - Fix: skip any log where `log.address.toLowerCase() !== env.CONTRACT_ADDRESS.toLowerCase()`. Test: a receipt with a matching event from another address is rejected.
+
+- [ ] **AUDIT-04 — An old sale tx hash can be sent again.** `tickets.service.ts` `fulfillResalePurchaseService` (L311-344) and `createResaleListingService` (L228-247).
+  - Problem: the ticket is updated before `Transaction.create` (unique `txHash`). A sells to B, B sells to C, C relists; B re-sends the first sale hash and MongoDB gives the ticket back to B. The duplicate-key error comes after the damage and returns 500.
+  - Fix: call `Transaction.create` first; map a duplicate key (`isDuplicateKeyError` in `shared/utils/mongoErrors.ts`) to a 409; then update the ticket. If the ticket update then finds nothing, delete the Transaction row just written.
+
+- [ ] **AUDIT-05 — A retry can mint two tickets for one purchase.** `tickets.service.ts` L61-70 with `blockchain.service.ts` `mintTicketOnChain` (L92-104). Same shape in `events.service.ts` L75-82 with `registerEventOnChain`.
+  - Problem: `withRetry` wraps "send transaction + `tx.wait(1)`". If the send works but the wait throws (RPC blip), the retry sends a second mint. Buyer gets two NFTs, MongoDB records one, and on-chain `mintedSupply` runs ahead of `remainingQuota`. For events, the retry reverts with "Event ID already exists" and the event stays `draft`.
+  - Fix: retry only the send; call `tx.wait(1)` once, outside the retry. If the wait fails, the outcome is unknown: record `PENDING_MINT` with the real `tx.hash` (see AUDIT-09), do not mint again.
+
+- [ ] **AUDIT-06 — Concurrent requests collide on the relayer nonce.** `blockchain.service.ts` `contract` getter (L60-67).
+  - Problem: every mint and every `markUsed` is sent from one wallet. Two requests at once read the same pending nonce and one is rejected. PRD asks for 500 concurrent scans; three retries are not enough, so scans return 502 and purchases end as `PENDING_MINT`.
+  - Fix: wrap the wallet: `new ethers.NonceManager(wallet)` (ethers 6.17 is installed). `NonceManager` increments before the send, so call `.reset()` when a send throws, or one failed send leaves a nonce gap that blocks every later transaction. Add a `// shortcut:` comment: this is per-process, so it only holds with one backend instance.
+
+- [ ] **AUDIT-07 — Tickets are minted with a bare CID as `tokenURI`.** `tickets.service.ts` L66 (`metadataURI: event.metadataCID`) and L77 (`tokenURI`).
+  - Problem: the value is `bafy...` with no `ipfs://`, so wallets and explorers cannot load the metadata, and it cannot be changed after mint.
+  - Fix: use the existing `toIpfsUri()` from `shared/utils/ipfs.ts` in both places. Must be done before any real mint.
+
+- [x] **AUDIT-08 — The built server cannot start.** FIXED 2026-11-17: `tsc-alias` added, `"build": "tsc && tsc-alias"`; verified `node dist/server.js` loads all modules (stops only at the missing MongoDB). `backend/package.json` L8 (`"build": "tsc"`), `backend/Dockerfile` L15-24.
+  - Problem: `tsc` does not rewrite the `@/` path alias. Verified: the emitted `dist/server.js` contains `require("@/shared/db/connect")`, which Node cannot resolve. Only `npm run dev` (tsx) works.
+  - Fix: add `tsc-alias` as a dev dependency and set `"build": "tsc && tsc-alias"`. Check with `npm run build && node dist/server.js`.
+
+### Should fix
+
+- [ ] **AUDIT-09 — Failed mints lose the seat and cannot be recovered.** `tickets.service.ts` L100-128.
+  - Problem: the catch block never restores `remainingQuota` or the `soldout` status; the `PENDING_MINT` row has no event ID and a random fake hash; a MongoDB error after a successful mint lands in the same branch and is logged as "not minted".
+  - Fix: add `eventId` to the `Transaction` model and store it. Store the real `tx.hash` when one exists. When nothing was sent, give the seat back (`$inc: { remainingQuota: 1 }`, status back to `active`). TASK-BE-09's recovery engine needs these fields.
+
+- [ ] **AUDIT-10 — Relayer has no `ORGANIZER_ROLE`.** `EventTicketNFT.sol` constructor (L94-96), `contracts/scripts/deploy.ts` L15-22.
+  - Problem: the backend relayer calls `createEvent` (needs `ORGANIZER_ROLE`), but the constructor grants that role only to the admin. It works today only because both addresses default to the deployer, which makes the server's hot key the contract admin.
+  - Fix: add `_grantRole(ORGANIZER_ROLE, minterRelayer);` in the constructor. Then deploy with separate `ADMIN_ADDRESS` and `MINTER_RELAYER_ADDRESS`.
+
+- [ ] **AUDIT-11 — Event search runs user text as a regex.** `backend/src/features/events/events.service.ts` L122-125.
+  - Problem: `GET /api/events?search=(` throws inside `new RegExp` and returns 500; a crafted pattern burns MongoDB CPU; length is unlimited. Public endpoint.
+  - Fix: escape first: `query.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')`. Add `.max(100)` to `search` in `events.schema.ts`.
+
+- [ ] **AUDIT-12 — A past sale deadline fails late.** `events.schema.ts` L18-35, `events.service.ts` L55-94.
+  - Problem: the schema allows `saleDeadline` in the past. The poster is pinned (permanent, billed), a `draft` row is saved, the contract reverts three times, and the user gets a 500.
+  - Fix: add `.refine((d) => d.saleDeadline > new Date(), ...)` to `createEventBodySchema`.
+
+- [ ] **AUDIT-13 — Used tickets stay on the marketplace.** `tickets.service.ts` `getResaleMarketplaceService` (L359).
+  - Problem: redeeming a listed ticket cancels the listing on-chain (`markUsed`) but MongoDB keeps `isListed: true`.
+  - Fix: filter with `{ isListed: true, isUsed: false }`.
+
+- [ ] **AUDIT-14 — Two organizer pages cannot load images.** `frontend/next.config.ts`, `frontend/src/app/organizer/dashboard/page.tsx` L340, `frontend/src/app/organizer/events/new/page.tsx` L501 and L561.
+  - Problem: `next/image` is used with `images.unsplash.com`, which is not allowed in the config. Next's loader throws "hostname is not configured". Other pages use plain `<img>` and work.
+  - Fix: add `images: { remotePatterns: [{ hostname: 'images.unsplash.com' }] }` to `next.config.ts`. Read `frontend/AGENTS.md` first: this Next.js version differs from older ones.
+
+- [ ] **AUDIT-15 — Contract resale path is thinly tested.** `contracts/test/EventTicketNFT.test.ts`.
+  - Missing tests: direct transfer reverts (AUDIT-02), sale after `saleDeadline` reverts, `cancelListing`, refund of an overpayment in `buyResoldTicket`.
+
+- [ ] **AUDIT-16 — Three near-copies of the receipt check.** `blockchain.service.ts` L170-300.
+  - Fix: one private helper that takes the tx hash, the event name and a match function, fetches the receipt, checks `status === 1`, checks `log.address` (AUDIT-03) and returns the parsed args. Keep the three public methods as thin callers so `tickets.service.ts` and its tests do not change. Keep the price-mismatch 400 in `verifyListingCreatedOnChain`.
+
+- [ ] **AUDIT-17 — Unused code to delete** (each was checked with a whole-tree search):
+  - `frontend/src/lib/mockData.ts`: `MOCK_TRANSACTIONS`, `MOCK_ANALYTICS`, `TransactionItem`, `CheckInRecord`, `OrganizerAnalytics`.
+  - `frontend/src/components/ui/Card.tsx`: `CardHeader`, `CardTitle`, `CardDescription`, `CardFooter`.
+  - `THIRDWEB_CLIENT_ID` in `backend/src/config/env.schema.ts`, `.env.example`, `.env.docker` and `env.schema.test.ts`: required at startup, read nowhere.
+  - The `resaleListings` line in `EVENT_TICKET_NFT_ABI`.
+  - The try/catch in `events.service.ts` L70-94 that only rethrows.
+  - Page/limit defaults in `tickets.service.ts` L153-154 and L373-374 (zod already sets them).
+  - The six `.gitkeep` files under `backend/src/` (the folders have files).
+
+### Nice to have
+
+- [ ] **AUDIT-18 — Oversized poster returns 500.** `events.routes.ts` L11-13, `shared/middleware/errorHandler.ts`. Multer's error has no `statusCode`. Fix: in `errorHandler`, map `err.name === 'MulterError'` to 400.
+- [ ] **AUDIT-19 — Bad `eventId` filter returns 500.** `tickets.validation.ts` L25. Fix: validate with the 24-hex regex already used by `purchaseSchema`.
+
+### Full test pass (2026-11-17, after pulling BE-09/BE-10)
+- Contracts 13/13, backend 370/370 (38 suites, passes with no `.env`), `tsc --noEmit` clean, frontend `next build` passes.
+- Fixed: `listener.service.test.ts` now mocks `@/config/env` (it used the real `env.ts`, which calls `process.exit(1)` without a `.env` and aborted the whole Jest run; one test also depended on `CONTRACT_DEPLOYMENT_BLOCK` being large).
+- **Deferred, not fixed — frontend lint errors (3):** `npm run lint` fails with 3 errors and 53 warnings (mostly unused imports and `<img>`, overlaps AUDIT-17).
+  - `no-explicit-any` at `frontend/src/app/organizer/events/new/page.tsx:141` and `frontend/src/app/page.tsx:256`: replace `any` with a real type.
+  - setState called synchronously inside an effect at `frontend/src/components/tickets/DynamicQRModal.tsx:72`: needs a restructure of the effect. Riskier, because it touches the 30s QR countdown, so review the modal first.
+- Not tested: nothing ran against real Optimism Sepolia, Thirdweb or Pinata. AUDIT-14 (`next/image` host) not reproduced.
+
+### Seen, not written up
+- Any organizer can redeem tickets of another organizer's event (`verifyTicketService` does not check the event's `organizerId`).
+- Events never move to `ended`.
+- Prices below 1e-7 ETH make `ethers.parseEther(price.toString())` throw (number prints as `1e-7`).
+- MongoDB has no password in `docker-compose.yml` (dev only).
+- `GET /api/events/:id` returns `draft` events to anyone.
+- Rate limiting was added in TASK-BE-10 (not re-audited).
+
+---
+
 ## ⏳ What Needs to be Done Next
 
 ### **Phase 2: Backend API & Event Listener (`backend/`) — IN PROGRESS**
+- [ ] Fix audit findings AUDIT-01 to AUDIT-07 (AUDIT-08 done; see **🔍 Audit Findings** above).
 - [x] Initialize Express + TypeScript project & MongoDB Mongoose connection.
 - [x] Implement database models (`User`, `Event`, `Ticket`, `Transaction`, `SyncState`).
 - [x] Implement Thirdweb Embedded Wallet authentication & JWT middleware.
